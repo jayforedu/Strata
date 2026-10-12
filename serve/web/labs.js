@@ -20,7 +20,6 @@ let storageWarned = false;
 const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const epoch = () => Math.floor(Date.now() / 1000);
 const currentSession = () => sessions.find((s) => s.id === sessionId) || null;
-const saveLabs = () => store.set("labs", {sessions: labs.sessions, msgTools: labs.msgTools, palette: labs.palette});
 
 // localStorage fills up - a long chat with pictures is the usual cause.  The data stays in this window.
 function persist(key, value) {
@@ -760,12 +759,15 @@ function paintComposerBtns() {
   if (paletteBtn) { paletteBtn.setAttribute("aria-label", T("palette.openTitle")); paletteBtn.title = T("palette.openTitle"); }
 }
 const LABS_SWITCHES = [["sessions", "labs-sessions"], ["msgTools", "labs-edit"], ["palette", "labs-palette"]];
-const LABS_LABEL = {sessions: "labs.sessions", msgTools: "labs.edit", palette: "labs.palette"};
 function paintLabsSwitches() {
-  for (const [k, id] of LABS_SWITCHES) $(id).setAttribute("aria-checked", String(!!labs[k]));
+  for (const [k, id] of LABS_SWITCHES) { const el = $(id); if (el) el.setAttribute("aria-checked", String(!!labs[k])); }
 }
+// The switches live in web/app.js: this file is only asked for once one of them is on, so it cannot be the place
+// that first answers a click.  sync() reads the three states back out of storage, which is where core wrote them.
+export function sync() { labs = {...LABS_OFF, ...store.get("labs", {})}; }
 // every node an add-on owns is built, or removed, here: the one place the switches touch the page
 export function apply() {
+  paintLabsSwitches();
   if (labs.sessions) { migrateSessions(); mountSidebar(); } else unmountSidebar();
   if (labs.palette) mountComposerBtns(); else unmountComposerBtns();
   if (!labs.palette) closePalette();
@@ -773,16 +775,6 @@ export function apply() {
   renderChat();          // the per-message buttons come and go with the switch
   renderSessions();
 }
-for (const [k, id] of LABS_SWITCHES) {
-  $(id).onclick = () => {
-    labs[k] = !labs[k];
-    saveLabs();
-    paintLabsSwitches();
-    apply();
-    toast("success", T(labs[k] ? "toast.labsOn" : "toast.labsOff", {name: T(LABS_LABEL[k])}));
-  };
-}
-
 // ------------------------------------------------------------------ the four hooks web/app.js uses
 // saveChat() in core calls chatSaved on every save; the per-message buttons report their clicks through msgClick;
 // a language switch repaints what this file owns through lang.  Nothing else in core reaches in here.

@@ -468,6 +468,9 @@ const I18N = (function () {
     "labs.paletteNote": {en: "Ctrl+K (Cmd+K on a Mac) opens it; saved prompts stay in this browser", zh: "Ctrl+K（Mac 為 Cmd+K）開啟；提示詞存在這個瀏覽器"},
     "toast.labsOn": {en: "{name} is on", zh: "{name}已開啟"},
     "toast.labsOff": {en: "{name} is off", zh: "{name}已關閉"},
+    "labs.loadFail": {en: "The Chat extras did not load", zh: "聊天加裝沒有載入"},
+    "labs.loadFailNote": {en: "Reload the page (Ctrl+Shift+R) to pick up the files this version ships.",
+                           zh: "請重新整理頁面（Ctrl+Shift+R），取用這個版本附帶的檔案。"},
     // ---- the saved-conversations sidebar
     "session.untitled": {en: "New conversation", zh: "新對話"},
     "sessions.title": {en: "Conversations", zh: "對話"},

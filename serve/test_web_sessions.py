@@ -74,6 +74,28 @@ class Switches(unittest.TestCase):
             self.assertIn('role="switch"', HTML)
         self.assertEqual(len(re.findall(r'id="labs-(?:sessions|edit|palette)"', HTML)), 3)
 
+    def test_the_switches_are_wired_by_core(self):
+        """The trap in the split: labs.js is only asked for once a switch is on, so core must own the clicks.
+        With them in labs.js, a page that shipped with all three off had switches that answered nothing."""
+        self.assertIn("for (const [k, id] of LABS_KEYS)", JS)
+        self.assertIn("el.onclick = () => {", JS)
+        for switch in ("labs-sessions", "labs-edit", "labs-palette"):
+            self.assertIn(f'"{switch}"', JS)
+        # the file answers to core, not to the click: core writes storage, labs.js reads it back
+        self.assertNotIn("$(id).onclick", LABS_JS)
+        self.assertNotIn("LABS_LABEL", LABS_JS)
+        self.assertIn("export function sync()", LABS_JS)
+        self.assertIn("this.mod.sync()", JS)
+        self.assertIn("paintLabsSwitches();", body("apply", LABS_JS))
+
+    def test_a_load_that_fails_says_so(self):
+        """A rejected import() used to leave the switches dead with no trace beyond the click doing nothing."""
+        at = JS.index('import("web/labs.js")')
+        block = JS[at:at + 700]
+        self.assertIn(".catch(", block)
+        self.assertIn("toast(", block)
+        self.assertIn('T("labs.loadFail")', block)
+
     def test_the_page_ships_no_sidebar_markup(self):
         """The sidebar is built at run time, so a page with the switch off has no trace of it in its HTML."""
         for marker in ("sessions__list", "sessions__head", "session-row", 'id="sessions"', 'id="sessions-q"'):

@@ -41,14 +41,52 @@ const Labs = {
   msgClick(t) { return this.mod ? this.mod.msgClick(t) : false; },
   newChat(defaultPath) { if (this.mod) this.mod.newChat(); else defaultPath(); },
   lang() { if (this.mod) this.mod.lang(); },
+  paint() {
+    for (const [k, id] of LABS_KEYS) { const el = $(id); if (el) el.setAttribute("aria-checked", String(!!this.on[k])); }
+  },
+  // The switches live here, not in web/labs.js: that file is only asked for once a switch is on, so a page that
+  // shipped with all three off had switches that answered nothing at all.  A click writes storage first, and the
+  // add-on file reads the same three values back through sync().
+  wire() {
+    for (const [k, id] of LABS_KEYS) {
+      const el = $(id);
+      if (!el) continue;
+      el.onclick = () => {
+        this.on[k] = !this.on[k];
+        store.set("labs", {sessions: this.on.sessions, msgTools: this.on.msgTools, palette: this.on.palette});
+        this.paint();
+        const name = T(LABS_NAME[k]);
+        const say = () => toast("success", T(this.on[k] ? "toast.labsOn" : "toast.labsOff", {name: name}));
+        if (this.mod) { this.mod.sync(); this.mod.apply(); say(); return; }
+        this.loadModule().then(() => { if (this.mod) say(); });
+      };
+    }
+  },
+  loadModule() {
+    // web/: a classic script resolves import() against the page's own address, and the page lives at /
+    return import("web/labs.js").then((m) => { this.mod = m; m.sync(); m.apply(); })
+      .catch(() => {
+        // the file did not arrive: say so, and leave the switches where this page can actually honour them
+        this.mod = null;
+        this.on = {sessions: false, msgTools: false, palette: false};
+        store.set("labs", this.on);
+        this.paint();
+        toast("warn", T("labs.loadFail"), T("labs.loadFailNote"), 8000);
+      });
+  },
   load() {
     const saved = store.get("labs", {});
     this.on = {sessions: !!saved.sessions, msgTools: !!saved.msgTools, palette: !!saved.palette};
+    this.paint();
+    this.wire();
     if (!this.on.sessions && !this.on.msgTools && !this.on.palette) return;
-    // web/: a classic script resolves import() against the page's own address, and the page lives at /
-    import("web/labs.js").then((m) => { this.mod = m; m.apply(); }).catch(() => { this.mod = null; });
+    this.loadModule();
   },
 };
+
+// The three switches of About > Chat extras, and the dictionary name behind each.
+const LABS_KEYS = [["sessions", "labs-sessions"], ["msgTools", "labs-edit"], ["palette", "labs-palette"]];
+const LABS_NAME = {sessions: "labs.sessions", msgTools: "labs.edit", palette: "labs.palette"};
 
 // ------------------------------------------------------------------ toasts
 function toast(kind, title, text = "", ms = 3500, action = null) {
