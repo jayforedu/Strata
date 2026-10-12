@@ -4919,6 +4919,9 @@ def make_handler(svc: Service):
                 body = (ROOT / "serve" / "web" / ("monitor.html" if path else "index.html")).read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
+                # no-cache, as for /web/: the app files change between runs, and a browser that keeps an old
+                # page never sees what the update brought (the language switch, issue #564's page).
+                self.send_header("Cache-Control", "no-cache")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)

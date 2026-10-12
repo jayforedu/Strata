@@ -2888,6 +2888,14 @@ class WebApp(unittest.TestCase):
                 self.assertEqual(code, 200)
                 self.assertIn(want, ctype)
 
+    def test_the_page_and_its_files_are_not_cached(self):
+        # the app files change between runs, so a browser must ask for them every time: one that keeps an old
+        # page after an update never sees what the update brought.
+        for path in ("/", "/web/app.js", "/web/app.css", "/web/i18n.js"):
+            with self.subTest(path=path):
+                with urllib.request.urlopen(self.base + path, timeout=10) as r:
+                    self.assertEqual(r.headers.get("Cache-Control", ""), "no-cache")
+
     def test_only_the_app_files_are_served(self):
         for path in ("/web/..%2Fserver.py", "/web/index.html", "/web/test.py", "/fonts/..%2F..%2Fsetup.py",
                      "/fonts/missing.woff2", "/fonts/x.ttf"):
