@@ -894,7 +894,10 @@ print(r.choices[0].message.content)
   The three panels live in their own files (`serve/web/labs.js`, `serve/web/labs.css`), which the page asks
   for only once a switch is on, so an update that rewrites `app.js` and `app.css` leaves them where they
   are. The switches themselves stay in `app.js`: the add-on file is only asked for once one is on, so it
-  cannot be the place that first answers a click. A page that cannot get the file says so with a toast.
+  cannot be the place that first answers a click. The page asks for that file by an address that starts at
+  the server's root and carries the time in it, so an answer a browser kept from before the file existed
+  cannot be what comes back. A page that cannot get the file says so with a toast naming the reason,
+  with a Try again button, and leaves the three switches off so the rest of the page keeps working.
 - **From other devices on your network.** The server listens on your PC only (`127.0.0.1`) unless you say otherwise:
   run setup with `START-HERE.bat --setup --host 0.0.0.0 --api-key some-long-secret` (or add `"host": "0.0.0.0"` and
   `"api_key": "..."` to `strata-<model>.json`). The server window then prints this PC's addresses

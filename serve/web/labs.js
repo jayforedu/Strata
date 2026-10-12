@@ -7,7 +7,7 @@
 // asks for web/labs.css in the same step it asks for this file, and never before.
 const labsCss = document.createElement("link");
 labsCss.rel = "stylesheet";
-labsCss.href = "web/labs.css";
+labsCss.href = "web/labs.css?v=" + Date.now();   // a fresh address, as for the code: see web/app.js
 document.head.appendChild(labsCss);
 
 const LABS_OFF = {sessions: false, msgTools: false, palette: false};

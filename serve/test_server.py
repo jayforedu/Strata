@@ -2892,7 +2892,8 @@ class WebApp(unittest.TestCase):
     def test_the_page_and_its_files_are_not_cached(self):
         # the app files change between runs, so a browser must ask for them every time: one that keeps an old
         # page after an update never sees what the update brought.
-        # labs.js is asked for by import(), which sends no cache-busting query, so it must not be cached either
+        # labs.js is asked for by import(), so it must not be cached: an old answer for that address - a 404
+        # from before the file existed - is what the page gets back, with nothing on screen to explain it
         for path in ("/", "/web/app.js", "/web/app.css", "/web/i18n.js", "/web/labs.js", "/web/labs.css"):
             with self.subTest(path=path):
                 with urllib.request.urlopen(self.base + path, timeout=10) as r:

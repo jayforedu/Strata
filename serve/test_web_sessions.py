@@ -36,17 +36,21 @@ class Switches(unittest.TestCase):
 
     def test_core_only_asks_for_the_add_ons_when_one_is_on(self):
         """The split: core reaches the add-ons through the Labs hooks, and asks for labs.js only when a switch is on."""
-        # web/ is not decoration: a classic script resolves import() against the page's own address, the page lives
-        # at /, and serve/server.py only serves these files under /web/.  A bare "labs.js" 404s and the add-ons
-        # never arrive, with the catch() leaving no trace beyond the switches doing nothing.
-        self.assertIn('import("web/labs.js")', JS)
+        # the address starts at the server's root: serve/server.py only serves these files under /web/, and a
+        # relative address ("web/labs.js") is refused outright by some browsers - "Failed to resolve module
+        # specifier" - so the add-ons never arrive and every switch reports a load failure.
+        self.assertIn('import(`/web/labs.js?v=${Date.now()}`)', JS)
+        self.assertNotIn('import(`web/labs.js', JS)
         self.assertNotIn('import("labs.js")', JS)
         self.assertIn('if (!this.on.sessions && !this.on.msgTools && !this.on.palette) return;', JS)
         # the page itself never names the add-on files: a page with the switches off loads exactly what it always did
         self.assertNotIn("labs.js", HTML)
         self.assertNotIn("labs.css", HTML)
+        # the address carries a stamp: a browser that kept the 404 from before these files existed would
+        # otherwise keep answering from its cache, and the switches would report a load that never happens
+        self.assertIn("?v=", JS)
         # labs.js brings its own stylesheet in the same step as its code
-        self.assertIn('labsCss.href = "web/labs.css";', LABS_JS)
+        self.assertIn('labsCss.href = "web/labs.css?v=" + Date.now();', LABS_JS)
         self.assertIn('document.head.appendChild(labsCss);', LABS_JS)
 
     def test_every_hook_core_calls_is_exported(self):
@@ -90,11 +94,14 @@ class Switches(unittest.TestCase):
 
     def test_a_load_that_fails_says_so(self):
         """A rejected import() used to leave the switches dead with no trace beyond the click doing nothing."""
-        at = JS.index('import("web/labs.js")')
-        block = JS[at:at + 700]
+        at = JS.index("web/labs.js?v=")
+        block = JS[at:at + 900]
         self.assertIn(".catch(", block)
         self.assertIn("toast(", block)
         self.assertIn('T("labs.loadFail")', block)
+        # the page offers a way out of the dead end: the toast's own button asks for the file again
+        self.assertIn('T("labs.retry")', block)
+        self.assertIn("retry(want)", JS)
 
     def test_the_page_ships_no_sidebar_markup(self):
         """The sidebar is built at run time, so a page with the switch off has no trace of it in its HTML."""

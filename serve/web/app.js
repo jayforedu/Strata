@@ -63,16 +63,31 @@ const Labs = {
     }
   },
   loadModule() {
-    // web/: a classic script resolves import() against the page's own address, and the page lives at /
-    return import("web/labs.js").then((m) => { this.mod = m; m.sync(); m.apply(); })
-      .catch(() => {
-        // the file did not arrive: say so, and leave the switches where this page can actually honour them
+    // /web/ with the leading slash: as a relative address ("web/labs.js"), some browsers answer
+    // "Failed to resolve module specifier": every switch then reports this load failure.
+    // serve/server.py keeps these files under /web/, so name it from the root.
+    // ?v=: a browser keeps the answer it once got for an address, and the answer for this address from before
+    // these files existed was a 404 - which kept answering for the page even after the files arrived.  A fresh
+    // address every time always reaches the server.
+    return import(`/web/labs.js?v=${Date.now()}`).then((m) => { this.mod = m; m.sync(); m.apply(); })
+      .catch((e) => {
+        // the file did not arrive: say so, leave the switches where this page can honour them, offer the retry,
+        // and name the reason - "404", "403", "MIME type" - is what tells a page and a browser apart here
         this.mod = null;
+        const want = {sessions: this.on.sessions, msgTools: this.on.msgTools, palette: this.on.palette};
         this.on = {sessions: false, msgTools: false, palette: false};
         store.set("labs", this.on);
         this.paint();
-        toast("warn", T("labs.loadFail"), T("labs.loadFailNote"), 8000);
+        const back = {label: T("labs.retry"), run: () => this.retry(want)};
+        const why = e && e.message ? String(e.message).split("\n")[0].slice(-90) : "";
+        toast("warn", T("labs.loadFail"), T("labs.loadFailNote") + (why ? " (" + why + ")" : ""), 10000, back);
       });
+  },
+  retry(want) {
+    this.on = {sessions: !!want.sessions, msgTools: !!want.msgTools, palette: !!want.palette};
+    store.set("labs", this.on);
+    this.paint();
+    this.loadModule().then(() => { if (this.mod) toast("success", T("labs.retryOk")); });
   },
   load() {
     const saved = store.get("labs", {});

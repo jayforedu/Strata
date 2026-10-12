@@ -471,6 +471,8 @@ const I18N = (function () {
     "labs.loadFail": {en: "The Chat extras did not load", zh: "聊天加裝沒有載入"},
     "labs.loadFailNote": {en: "Reload the page (Ctrl+Shift+R) to pick up the files this version ships.",
                            zh: "請重新整理頁面（Ctrl+Shift+R），取用這個版本附帶的檔案。"},
+    "labs.retry": {en: "Try again", zh: "重新嘗試"},
+    "labs.retryOk": {en: "The Chat extras loaded", zh: "聊天加裝已載入"},
     // ---- the saved-conversations sidebar
     "session.untitled": {en: "New conversation", zh: "新對話"},
     "sessions.title": {en: "Conversations", zh: "對話"},
