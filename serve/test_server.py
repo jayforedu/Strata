@@ -2882,7 +2882,8 @@ class WebApp(unittest.TestCase):
         self.assertIn("text/html", ctype)
         self.assertIn(b"\"web/app.js\"", body)   # relative since #82 (works behind a path-prefixed proxy)
         for path, want in (("/web/app.js", "javascript"), ("/web/app.css", "text/css"), ("/web/tokens.css", "text/css"),
-                           ("/web/components.css", "text/css"), ("/web/sprite.svg", "image/svg+xml")):
+                           ("/web/components.css", "text/css"), ("/web/sprite.svg", "image/svg+xml"),
+                           ("/web/labs.js", "javascript"), ("/web/labs.css", "text/css")):
             with self.subTest(path=path):
                 code, ctype, _ = self.get(path)
                 self.assertEqual(code, 200)
@@ -2891,7 +2892,8 @@ class WebApp(unittest.TestCase):
     def test_the_page_and_its_files_are_not_cached(self):
         # the app files change between runs, so a browser must ask for them every time: one that keeps an old
         # page after an update never sees what the update brought.
-        for path in ("/", "/web/app.js", "/web/app.css", "/web/i18n.js"):
+        # labs.js is asked for by import(), which sends no cache-busting query, so it must not be cached either
+        for path in ("/", "/web/app.js", "/web/app.css", "/web/i18n.js", "/web/labs.js", "/web/labs.css"):
             with self.subTest(path=path):
                 with urllib.request.urlopen(self.base + path, timeout=10) as r:
                     self.assertEqual(r.headers.get("Cache-Control", ""), "no-cache")

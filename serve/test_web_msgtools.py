@@ -12,13 +12,17 @@ from pathlib import Path
 
 WEB = Path(__file__).parent / "web"
 JS = (WEB / "app.js").read_text(encoding="utf-8")
+LABS_JS = (WEB / "labs.js").read_text(encoding="utf-8")
 CSS = (WEB / "app.css").read_text(encoding="utf-8")
+LABS_CSS = (WEB / "labs.css").read_text(encoding="utf-8")
 
 
-def body(name):
-    """One function's text, from its `function name(` line to the first line that closes it."""
-    at = JS.index(f"function {name}(")
-    tail = JS[at:]
+def body(name, src=None):
+    """One function's text, from its `function name(` line to the first line that closes it.  The edit and
+    regenerate buttons live in labs.js, so pass LABS_JS for them."""
+    src = JS if src is None else src
+    at = src.index(f"function {name}(")
+    tail = src[at:]
     end = re.search(r"\n\}\n", tail)
     return tail[:end.end()]
 
@@ -38,12 +42,12 @@ class SharedStream(unittest.TestCase):
 
     def test_the_new_answer_cross_fades(self):
         self.assertIn('el.classList.add("msg-in");', body("runAssistant"))
-        self.assertIn(".st-msg.msg-in { animation: msg-in 140ms var(--st-ease); }", CSS)
+        self.assertIn(".st-msg.msg-in { animation: msg-in 140ms var(--st-ease); }", LABS_CSS)
 
 
 class Edit(unittest.TestCase):
     def test_saving_a_question_drops_the_answers_after_it(self):
-        text = body("startEdit")
+        text = body("startEdit", LABS_JS)
         self.assertIn("messages[i].text = text;", text)
         self.assertIn("messages.length = i + 1;", text)
         self.assertIn("saveChat();", text)
@@ -51,13 +55,13 @@ class Edit(unittest.TestCase):
         self.assertIn("runAssistant();", text)
 
     def test_the_edit_snapshots_the_history_and_offers_undo(self):
-        text = body("startEdit")
+        text = body("startEdit", LABS_JS)
         self.assertIn("const snapshot = messages.map((x) => ({...x}));", text)
         self.assertIn('T("toast.undo")', text)
         self.assertIn("messages = snapshot;", text)
 
     def test_the_box_is_a_textarea_that_opens_and_closes(self):
-        text = body("startEdit")
+        text = body("startEdit", LABS_JS)
         self.assertIn('ta.className = "st-input msg-edit__input";', text)
         self.assertIn('box.className = "msg-edit";', text)
         self.assertIn('e.key === "Escape"', text)
@@ -65,25 +69,25 @@ class Edit(unittest.TestCase):
         self.assertIn("e.isComposing", text)          # an IME commit is not a send
 
     def test_a_question_whose_picture_is_gone_says_so(self):
-        text = body("startEdit")
+        text = body("startEdit", LABS_JS)
         self.assertIn("im.url", text)
         self.assertIn('T("msg.imageLost")', text)
 
     def test_the_box_replaces_the_bubble_and_refits_itself(self):
-        text = body("startEdit")
+        text = body("startEdit", LABS_JS)
         self.assertIn('el.querySelector(".st-bubble").hidden = true;', text)
         self.assertIn("ta.style.height = `${Math.min(ta.scrollHeight", text)
 
 
 class Regenerate(unittest.TestCase):
     def test_regenerating_drops_the_answer_and_writes_a_new_one(self):
-        text = body("regenerate")
+        text = body("regenerate", LABS_JS)
         self.assertIn("messages.length = i;", text)
         self.assertIn("saveChat();", text)
         self.assertIn("runAssistant();", text)
 
     def test_the_old_answer_comes_back_on_undo(self):
-        text = body("regenerate")
+        text = body("regenerate", LABS_JS)
         self.assertIn("const snapshot = messages.map((x) => ({...x}));", text)
         self.assertIn('T("toast.undo")', text)
         self.assertIn("messages = snapshot;", text)
@@ -94,12 +98,14 @@ class Busy(unittest.TestCase):
         self.assertIn('document.querySelectorAll("[data-msg-edit], [data-msg-regen]")) b.hidden = on;', JS)
 
     def test_both_entry_points_refuse_a_writing_answer(self):
-        self.assertIn("if (busy)", body("startEdit"))
-        self.assertIn("if (busy)", body("regenerate"))
+        self.assertIn("if (busy)", body("startEdit", LABS_JS))
+        self.assertIn("if (busy)", body("regenerate", LABS_JS))
 
     def test_the_buttons_only_exist_with_the_switch_on(self):
-        self.assertIn("if (labs.msgTools) {", body("msgEl"))
-        self.assertIn("labs.msgTools ? `<button", body("msgEl"))
+        """Core asks the add-ons through the Labs hook, so a page with the switch off builds neither button."""
+        self.assertIn("if (Labs.msgTools()) {", body("msgEl"))
+        self.assertIn("Labs.msgTools() ? `<button", body("msgEl"))
+        self.assertNotIn("labs.msgTools", body("msgEl"))
 
     def test_a_partial_answer_offers_no_regenerate(self):
         text = body("updateAssistant")
@@ -108,13 +114,13 @@ class Busy(unittest.TestCase):
 
 class Motion(unittest.TestCase):
     def test_the_edit_box_opens_over_180ms(self):
-        self.assertIn(".msg-edit { overflow: hidden; transition: height 180ms var(--st-ease), opacity 180ms var(--st-ease); }", CSS)
-        self.assertIn('box.style.height = "0px";', body("startEdit"))
-        self.assertIn("requestAnimationFrame(", body("startEdit"))
+        self.assertIn(".msg-edit { overflow: hidden; transition: height 180ms var(--st-ease), opacity 180ms var(--st-ease); }", LABS_CSS)
+        self.assertIn('box.style.height = "0px";', body("startEdit", LABS_JS))
+        self.assertIn("requestAnimationFrame(", body("startEdit", LABS_JS))
 
     def test_reduced_motion_covers_the_new_motion(self):
-        block = re.search(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", CSS, re.S)
-        self.assertIsNotNone(block, "app.css has no prefers-reduced-motion tier")
+        block = re.search(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", LABS_CSS, re.S)
+        self.assertIsNotNone(block, "labs.css has no prefers-reduced-motion tier")
         self.assertIn(".msg-edit", block.group(1))
         self.assertIn(".st-msg.msg-in", block.group(1))
 

@@ -13,22 +13,26 @@ from pathlib import Path
 WEB = Path(__file__).parent / "web"
 HTML = (WEB / "index.html").read_text(encoding="utf-8")
 JS = (WEB / "app.js").read_text(encoding="utf-8")
+LABS_JS = (WEB / "labs.js").read_text(encoding="utf-8")
 CSS = (WEB / "app.css").read_text(encoding="utf-8")
+LABS_CSS = (WEB / "labs.css").read_text(encoding="utf-8")
 SERVER = (Path(__file__).parent / "server.py").read_text(encoding="utf-8")
 
 
-def body(name):
-    """One function's text, from its `function name(` line to the first line that closes it."""
-    at = JS.index(f"function {name}(")
-    tail = JS[at:]
+def body(name, src=None):
+    """One function's text, from its `function name(` line to the first line that closes it.  The command list
+    and the saved prompts live in labs.js, so pass LABS_JS for them."""
+    src = JS if src is None else src
+    at = src.index(f"function {name}(")
+    tail = src[at:]
     end = re.search(r"\n\}\n", tail)
     return tail[:end.end()]
 
 
 class Takeover(unittest.TestCase):
     def test_ctrl_k_and_cmd_k_open_it_and_the_browser_does_not(self):
-        at = JS.index('if (!(e.ctrlKey || e.metaKey) || (e.key !== "k" && e.key !== "K")) return;')
-        block = JS[at - 200:at + 300]
+        at = LABS_JS.index('if (!(e.ctrlKey || e.metaKey) || (e.key !== "k" && e.key !== "K")) return;')
+        block = LABS_JS[at - 200:at + 300]
         self.assertIn("ctrlKey", block)
         self.assertIn("metaKey", block)
         self.assertIn("e.preventDefault();", block)
@@ -36,8 +40,8 @@ class Takeover(unittest.TestCase):
         self.assertIn("if (palette) closePalette(); else openPalette();", block)
 
     def test_the_box_only_opens_with_the_switch_on(self):
-        self.assertIn("if (labs.palette) mountComposerBtns(); else unmountComposerBtns();", JS)
-        self.assertIn("if (!labs.palette) closePalette();", JS)
+        self.assertIn("if (labs.palette) mountComposerBtns(); else unmountComposerBtns();", LABS_JS)
+        self.assertIn("if (!labs.palette) closePalette();", LABS_JS)
 
     def test_the_page_ships_no_palette_markup(self):
         for marker in ("palette__list", "palette-row", 'id="palette"', 'id="palette-q"', "snip-list", "snip-drawer"):
@@ -45,21 +49,21 @@ class Takeover(unittest.TestCase):
 
     def test_the_server_never_sees_a_prompt(self):
         self.assertNotIn("snippets", SERVER)
-        self.assertNotIn("strata.snippets", JS.replace('persist("snippets"', ""))
+        self.assertNotIn("strata.snippets", LABS_JS.replace('persist("snippets"', ""))
 
 
 class Keyboard(unittest.TestCase):
     def test_the_box_is_a_dialog_over_a_listbox(self):
-        text = body("openPalette")
+        text = body("openPalette", LABS_JS)
         self.assertIn('palette.setAttribute("role", "dialog");', text)
         self.assertIn('palette.setAttribute("aria-modal", "true");', text)
         self.assertIn('paletteList.setAttribute("role", "listbox");', text)
         self.assertIn('paletteInput.setAttribute("role", "combobox");', text)
-        self.assertIn('row.setAttribute("role", "option");', body("renderPalette"))
-        self.assertIn("aria-activedescendant", body("selectPalette"))
+        self.assertIn('row.setAttribute("role", "option");', body("renderPalette", LABS_JS))
+        self.assertIn("aria-activedescendant", body("selectPalette", LABS_JS))
 
     def test_the_box_keeps_its_own_focus(self):
-        text = body("openPalette")
+        text = body("openPalette", LABS_JS)
         self.assertIn('if (e.key === "Tab") { e.preventDefault(); paletteInput.focus(); return; }', text)
         self.assertIn('e.key === "ArrowDown"', text)
         self.assertIn('e.key === "ArrowUp"', text)
@@ -67,41 +71,41 @@ class Keyboard(unittest.TestCase):
         self.assertIn('e.key === "Escape"', text)
 
     def test_the_box_remembers_where_the_user_came_from(self):
-        self.assertIn("paletteReturn = document.activeElement;", body("openPalette"))
-        self.assertIn("if (paletteReturn && paletteReturn.isConnected) paletteReturn.focus();", body("closePalette"))
+        self.assertIn("paletteReturn = document.activeElement;", body("openPalette", LABS_JS))
+        self.assertIn("if (paletteReturn && paletteReturn.isConnected) paletteReturn.focus();", body("closePalette", LABS_JS))
 
     def test_typing_is_debounced(self):
-        self.assertIn("setTimeout(() => renderPalette(paletteInput.value), 60);", body("openPalette"))
+        self.assertIn("setTimeout(() => renderPalette(paletteInput.value), 60);", body("openPalette", LABS_JS))
 
     def test_the_rows_stagger_and_stop_staggering(self):
-        self.assertIn("if (k < 10) row.style.animationDelay = `${k * 14}ms`;", body("renderPalette"))
+        self.assertIn("if (k < 10) row.style.animationDelay = `${k * 14}ms`;", body("renderPalette", LABS_JS))
 
     def test_the_scrim_closes_it(self):
-        self.assertIn("paletteScrim.onclick = () => closePalette();", body("openPalette"))
+        self.assertIn("paletteScrim.onclick = () => closePalette();", body("openPalette", LABS_JS))
 
 
 class Commands(unittest.TestCase):
     def test_the_groups_come_in_their_order(self):
-        self.assertIn('const PALETTE_GROUPS = [["actions", "palette.groupActions"], ["chats", "palette.groupChats"],', JS)
-        self.assertIn('["prompts", "palette.groupPrompts"], ["settings", "palette.groupSettings"]];', JS)
+        self.assertIn('const PALETTE_GROUPS = [["actions", "palette.groupActions"], ["chats", "palette.groupChats"],', LABS_JS)
+        self.assertIn('["prompts", "palette.groupPrompts"], ["settings", "palette.groupSettings"]];', LABS_JS)
 
     def test_the_chats_group_only_exists_with_the_sidebar_on(self):
-        text = body("paletteItems")
+        text = body("paletteItems", LABS_JS)
         at = text.index('group: "chats"')
         self.assertIn("if (labs.sessions) {", text[:at])
         self.assertIn("sessions.slice(0, 8)", text)
 
     def test_a_command_closes_the_box_before_it_opens_anything(self):
-        text = body("runPalette")
+        text = body("runPalette", LABS_JS)
         self.assertLess(text.index("closePalette();"), text.index("x.run()"))
 
     def test_the_search_is_a_subsequence_match(self):
-        text = body("fuzzy")
+        text = body("fuzzy", LABS_JS)
         self.assertIn("t.indexOf(ch, at + 1)", text)
         self.assertIn("return -1", text)
 
     def test_the_two_sampling_switches_report_which_way_they_went(self):
-        text = body("paletteItems")
+        text = body("paletteItems", LABS_JS)
         self.assertIn('T("toast.mcpOn")', text)
         self.assertIn('T("toast.mcpOff")', text)
         self.assertIn('T("toast.showOn")', text)
@@ -110,45 +114,45 @@ class Commands(unittest.TestCase):
 
 class Prompts(unittest.TestCase):
     def test_insert_lands_at_the_caret_and_sends_nothing(self):
-        text = body("insertSnippet")
+        text = body("insertSnippet", LABS_JS)
         self.assertIn("el.selectionStart", text)
         self.assertIn("el.setSelectionRange(end, end);", text)
         self.assertIn("autosize();", text)
         self.assertNotIn("send()", text)
 
     def test_the_list_is_capped_and_a_deletion_can_be_undone(self):
-        self.assertIn("snippets.length >= SNIPPET_LIMIT", body("saveSnippet"))
-        self.assertIn("snippets.slice(0, SNIPPET_LIMIT)", body("saveSnippet"))
-        self.assertIn('T("toast.undo")', body("deleteSnippet"))
+        self.assertIn("snippets.length >= SNIPPET_LIMIT", body("saveSnippet", LABS_JS))
+        self.assertIn("snippets.slice(0, SNIPPET_LIMIT)", body("saveSnippet", LABS_JS))
+        self.assertIn('T("toast.undo")', body("deleteSnippet", LABS_JS))
 
     def test_the_editor_is_built_once(self):
-        self.assertIn("if (snipDrawer) return;", body("mountSnippets"))
-        self.assertIn("if (!snipDrawer) return;", body("paintSnippets"))
-        self.assertIn("if (!snipList) return;", body("renderSnippets"))
+        self.assertIn("if (snipDrawer) return;", body("mountSnippets", LABS_JS))
+        self.assertIn("if (!snipDrawer) return;", body("paintSnippets", LABS_JS))
+        self.assertIn("if (!snipList) return;", body("renderSnippets", LABS_JS))
 
     def test_the_drawer_closes_on_escape_and_on_the_scrim(self):
-        self.assertIn('if (e.key === "Escape" && snipDrawer && snipDrawer.dataset.open === "true") closeSnippets();', JS)
-        self.assertIn("snipScrim.onclick = () => closeSnippets();", body("mountSnippets"))
+        self.assertIn('if (e.key === "Escape" && snipDrawer && snipDrawer.dataset.open === "true") closeSnippets();', LABS_JS)
+        self.assertIn("snipScrim.onclick = () => closeSnippets();", body("mountSnippets", LABS_JS))
 
     def test_the_composer_buttons_are_built_and_removed_with_the_switch(self):
-        self.assertIn("if (paletteBtn) return;", body("mountComposerBtns"))
-        self.assertIn("snipBtn = paletteBtn = null;", body("unmountComposerBtns"))
+        self.assertIn("if (paletteBtn) return;", body("mountComposerBtns", LABS_JS))
+        self.assertIn("snipBtn = paletteBtn = null;", body("unmountComposerBtns", LABS_JS))
 
     def test_the_prompts_are_saved_in_the_browser_only(self):
-        self.assertIn('persist("snippets", snippets);', body("saveSnippet"))
-        self.assertNotIn("fetch", body("saveSnippet"))
+        self.assertIn('persist("snippets", snippets);', body("saveSnippet", LABS_JS))
+        self.assertNotIn("fetch", body("saveSnippet", LABS_JS))
 
 
 class Motion(unittest.TestCase):
     def test_the_box_scales_in_over_180ms_and_the_scrim_fades_over_160ms(self):
-        self.assertIn("animation: palette-in 180ms var(--st-ease);", CSS)
-        self.assertIn("@keyframes palette-in { from { opacity: 0; transform: translateX(-50%) scale(.98); } }", CSS)
-        self.assertIn("animation: scrim-in 160ms var(--st-ease);", CSS)
-        self.assertIn("transition: background 120ms var(--st-ease)", CSS)
+        self.assertIn("animation: palette-in 180ms var(--st-ease);", LABS_CSS)
+        self.assertIn("@keyframes palette-in { from { opacity: 0; transform: translateX(-50%) scale(.98); } }", LABS_CSS)
+        self.assertIn("animation: scrim-in 160ms var(--st-ease);", LABS_CSS)
+        self.assertIn("transition: background 120ms var(--st-ease)", LABS_CSS)
 
     def test_reduced_motion_covers_the_new_motion(self):
-        block = re.search(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", CSS, re.S)
-        self.assertIsNotNone(block, "app.css has no prefers-reduced-motion tier")
+        block = re.search(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", LABS_CSS, re.S)
+        self.assertIsNotNone(block, "labs.css has no prefers-reduced-motion tier")
         for selector in (".palette", ".palette-row", ".snip-item", ".palette-scrim"):
             self.assertIn(selector, block.group(1))
 

@@ -119,14 +119,14 @@ class Pages(unittest.TestCase):
             self.assertEqual(missing, [], f"{name} names keys the dictionary does not have: {missing}")
 
     def test_every_string_a_script_builds_has_a_key(self):
-        for name in ("app.js", "monitor.js"):
+        for name in ("app.js", "labs.js", "monitor.js"):
             js = (WEB / name).read_text(encoding="utf-8")
             used = set(CALL.findall(js)) - set(DYNAMIC.findall(js))
             missing = sorted(used - set(self.strings))
             self.assertEqual(missing, [], f"{name} builds strings for keys the dictionary does not have: {missing}")
 
     def test_the_key_families_built_at_run_time_exist(self):
-        for name in ("app.js", "monitor.js"):
+        for name in ("app.js", "labs.js", "monitor.js"):
             js = (WEB / name).read_text(encoding="utf-8")
             for prefix in set(DYNAMIC.findall(js)):
                 members = [k for k in self.strings if k.startswith(prefix)]
@@ -165,7 +165,7 @@ class Scripts(unittest.TestCase):
 
     def test_no_english_is_written_straight_into_the_page(self):
         # A string a script writes straight into the page is one the language switch cannot translate.
-        for name in ("app.js", "monitor.js"):
+        for name in ("app.js", "labs.js", "monitor.js"):
             js = (WEB / name).read_text(encoding="utf-8")
             for line_no, line in enumerate(js.splitlines(), 1):
                 for group in BARE.findall(line):
