@@ -443,6 +443,10 @@ app. It has three tabs:
   VRAM, temperature, power and PCIe traffic; CPU, RAM and disk; the context in use; the last requests.
 - **About:** the model and engine settings, and the addresses to connect other apps.
 
+The header's globe button, or Ctrl+L (Cmd+L on a Mac), switches the app between English and 繁體中文. It starts in
+whichever your browser asks for and remembers your choice in the browser; nothing is reloaded and nothing is sent to
+the server. Technical names and units (VRAM, GPU, PCIe, tok/s, MCP, ESP, API key, token) stay English in both.
+
 `http://127.0.0.1:8080/?q=your question` opens it with a new chat already asking. The API is at
 `http://127.0.0.1:8080/v1` for your apps.
 
@@ -828,6 +832,18 @@ print(r.choices[0].message.content)
   `strata-<model>.json.bak`, and the model uses the change from its next start. Only Strata's own page can save
   (JSON, the API key when one is set, as for the Chat settings); the network, key, MCP and program keys are not
   editable there.
+   Its labels follow the page's language (English, or 繁體中文 under the globe button); the key names under them and
+   the values a dropdown offers are the file's own words, so they stay English in both.
+- **Chat extras (opt-in, off by default).** The About tab has a Chat extras card with three switches: **Saved
+  conversations** (a sidebar of the last 60 chats, with a search, a rename, a per-chat Markdown export and a delete
+  that can be undone), **Edit and regenerate** (re-send a question from the chat, or ask for the answer again, each
+  with a 6-second Undo), and **Command list (Ctrl+K) and saved prompts** (a keyboard list of the page's own
+  commands, plus prompts you keep and drop into the composer where the cursor is; inserting sends nothing).
+  All three are off on a first start, and with all three off the page is the page it always was: it builds none
+  of their panels and sends the same requests. Conversations and prompts live in the browser's localStorage and
+  are never sent to the server; switching Saved conversations back off leaves the chat this browser already had
+  where it was. Pictures keep their current behaviour (they are not written to localStorage), so a conversation
+  reopened later shows its picture chips without their previews.
 - **From other devices on your network.** The server listens on your PC only (`127.0.0.1`) unless you say otherwise:
   run setup with `START-HERE.bat --setup --host 0.0.0.0 --api-key some-long-secret` (or add `"host": "0.0.0.0"` and
   `"api_key": "..."` to `strata-<model>.json`). The server window then prints this PC's addresses
@@ -1644,6 +1660,7 @@ with **262,144 characters per input/output/reasoning/response field** and visibl
 responses are unaffected. Headers are not recorded, and the monitor key is kept in this tab's session storage.
 Treat request history as sensitive input/output when exposing Strata on a network: set an API key as above.
 The page uses relative URLs and works through the existing host binding or a reverse proxy.
+It switches between English and 繁體中文 the same way the app does, on the same saved choice.
 
 ### Prompt buffers: `bo` shares `emb` (#1454)
 

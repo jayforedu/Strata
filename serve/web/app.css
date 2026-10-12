@@ -11,6 +11,10 @@ main { flex: 1; min-height: 0; display: flex; }
 .card-title { font-weight: var(--st-fw-bold); font-size: var(--st-fs-base); color: var(--st-ink); }
 .st-header { position: relative; z-index: 2; flex: none; }
 .st-header .st-tabs { margin-left: var(--st-s-4); }
+/* the language button carries a word, so it is wider than the icon buttons beside it */
+#lang-btn { width: auto; min-width: 36px; padding: 0 9px; gap: 5px; display: inline-flex; align-items: center; justify-content: center; }
+#lang-btn .st-icon { width: 16px; height: 16px; }
+#lang-btn .lang-btn__label { font-size: var(--st-fs-sm); font-weight: var(--st-fw-medium); line-height: 1; }
 #drawer-close .st-icon { transform: rotate(-90deg); }
 
 /* ---------------------------------------------------------------- chat */
@@ -162,6 +166,126 @@ main { flex: 1; min-height: 0; display: flex; }
 .st-toast { animation: toast-in 180ms var(--st-ease); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
 
+/* ---------------------------------------------------------------- chat add-ons (About > Chat extras)
+   Every rule here sits behind a switch: with the three off, none of these selectors match anything on the page. */
+/* The sidebar is a grid column, not a wrapper: the chat keeps its own nodes, so switching the add-on
+   off leaves the page exactly as it was.  Row 1 is the scrolling chat, row 2 the composer. */
+.chat-split { display: grid; grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+.chat-split > .sessions { grid-column: 1; grid-row: 1 / 3; min-height: 0; }
+.chat-split > .chat-scroll { grid-column: 2; grid-row: 1; }
+.chat-split > .composer-wrap { grid-column: 2; grid-row: 2; }
+
+/* the saved conversations: a 260px column beside the chat, an off-canvas panel under 1000px */
+.sessions { flex: none; width: 260px; display: flex; flex-direction: column; gap: var(--st-s-3);
+            padding: var(--st-s-4) var(--st-s-3); background: var(--st-surface-2);
+            border-right: 1px solid var(--st-line); overflow: hidden; animation: panel-in 240ms var(--st-ease); }
+.sessions__head { display: flex; align-items: center; justify-content: space-between; gap: var(--st-s-2); padding: 0 var(--st-s-1); }
+.sessions__head .st-btn--icon { width: 30px; height: 30px; }
+.sessions__search { position: relative; display: flex; align-items: center; }
+.sessions__search .st-icon { position: absolute; left: 11px; width: 16px; height: 16px; color: var(--st-ink-muted); pointer-events: none; }
+.sessions__search .st-input { height: 36px; width: 100%; padding-left: 33px; font-size: var(--st-fs-sm); background: var(--st-surface); }
+.sessions__list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.sessions__empty { padding: var(--st-s-3) var(--st-s-2); }
+.session-row { position: relative; display: flex; animation: row-in 160ms var(--st-ease) both; }
+.session-row__open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left;
+                     padding: var(--st-s-2) var(--st-s-3); border: 0; border-radius: var(--st-r-md); cursor: pointer;
+                     background: transparent; color: var(--st-ink-soft); font: 500 var(--st-fs-sm)/1.35 var(--st-font);
+                     transition: background var(--st-dur) var(--st-ease); }
+.session-row__open:hover { background: color-mix(in srgb, var(--st-surface) 55%, var(--st-surface-2)); }
+/* the selected row speaks the kit's tab language: the surface it sits on is one step darker */
+.session-row__open[aria-current="true"] { background: var(--st-surface); color: var(--st-ink);
+                                         font-weight: var(--st-fw-bold); box-shadow: var(--st-sh-card); }
+.session-row__title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-row__meta { font-weight: var(--st-fw-medium); }
+.session-row__tools { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 2px;
+                     padding: 2px; background: var(--st-surface); border: 1px solid var(--st-line);
+                     border-radius: var(--st-r-pill); box-shadow: var(--st-sh-pop); opacity: 0;
+                     transition: opacity var(--st-dur) var(--st-ease); }
+.session-row:hover .session-row__tools, .session-row:focus-within .session-row__tools { opacity: 1; }
+.session-row__tools .st-btn--icon { width: 26px; height: 26px; }
+.session-row__tools .st-icon { width: 15px; height: 15px; }
+/* a deleted row closes over its own height, which the script measured before it asked for the collapse */
+.session-row--gone { height: 0 !important; overflow: hidden; opacity: 0;
+                    transition: height 200ms var(--st-ease), opacity 200ms var(--st-ease); }
+.session-row__input { display: block; width: 100%; margin: 2px 0; padding: 4px 6px; resize: vertical;
+                     border: 1.5px solid var(--st-focus); border-radius: var(--st-r-sm); background: var(--st-surface);
+                     color: var(--st-ink); font: 500 var(--st-fs-sm)/1.35 var(--st-font); }
+#sessions-btn { display: none; }
+
+/* switching between two saved conversations: out in 120ms, back in 180ms */
+#chat.swap-out { animation: fade-out 120ms var(--st-ease) forwards; }
+#chat.swap-in { animation: fade-in 180ms var(--st-ease); }
+@keyframes fade-out { to { opacity: 0; transform: translateY(-4px); } }
+@keyframes fade-in { from { opacity: 0; transform: translateY(6px); } }
+
+/* a question being re-sent, and the answer a regenerate dropped */
+.msg-edit { overflow: hidden; transition: height 180ms var(--st-ease), opacity 180ms var(--st-ease); }
+.msg-edit { width: 100%; }
+.msg-edit .st-input { width: 100%; height: auto; min-height: 60px; padding: 10px 12px; resize: vertical; }
+.msg-edit__bar { display: flex; justify-content: flex-end; gap: var(--st-s-2); margin-top: var(--st-s-2); }
+.st-msg.msg-in { animation: msg-in 140ms var(--st-ease); }
+@keyframes msg-in { from { opacity: 0; transform: translateY(4px); } }
+
+/* the Ctrl+K list */
+.palette-scrim { position: fixed; inset: 0; background: rgba(15, 23, 42, .18); z-index: 49; animation: scrim-in 160ms var(--st-ease); }
+.palette { position: fixed; top: 12vh; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 24px));
+           display: flex; flex-direction: column; overflow: hidden; background: var(--st-surface);
+           border: 1px solid var(--st-line); border-radius: var(--st-r-lg); box-shadow: var(--st-sh-pop);
+           z-index: 50; animation: palette-in 180ms var(--st-ease); }
+.palette__search { display: flex; align-items: center; gap: var(--st-s-2); padding: var(--st-s-3) var(--st-s-4);
+                  border-bottom: 1px solid var(--st-line); }
+.palette__search .st-input { height: 38px; flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; }
+.palette__search .st-input:focus { outline: 0; box-shadow: none; }
+.palette__list { max-height: min(46vh, 420px); overflow-y: auto; padding: var(--st-s-2); }
+.palette__hint { padding: var(--st-s-2) var(--st-s-4); border-top: 1px solid var(--st-line); }
+.palette__empty { padding: var(--st-s-5) var(--st-s-4); text-align: center; }
+.palette-group { padding: var(--st-s-2) var(--st-s-3) var(--st-s-1); font-weight: var(--st-fw-bold); }
+.palette-row { display: flex; align-items: baseline; gap: var(--st-s-3); padding: 9px var(--st-s-3); cursor: pointer;
+             border-radius: var(--st-r-sm); color: var(--st-ink-soft); font-size: var(--st-fs-md);
+             transition: background 120ms var(--st-ease), color 120ms var(--st-ease);
+             animation: row-in 160ms var(--st-ease) both; }
+.palette-row__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-row__note { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-row.is-sel { background: var(--st-accent-tint); color: var(--st-ink); font-weight: var(--st-fw-medium); }
+
+/* the saved prompts, in the kit's right-hand drawer */
+#snip-close .st-icon { transform: rotate(-90deg); }
+#snip-text { height: auto; min-height: 130px; padding: 10px 14px; resize: vertical; }
+.snip-note { margin: 0; }
+.snip-list { display: flex; flex-direction: column; gap: var(--st-s-2); }
+.snip-item { display: flex; align-items: center; gap: 2px; padding: var(--st-s-2);
+           background: var(--st-surface-2); border: 1px solid var(--st-line-soft); border-radius: var(--st-r-md);
+           animation: row-in 160ms var(--st-ease) both; }
+.snip-item__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                   font-size: var(--st-fs-sm); font-weight: var(--st-fw-medium); color: var(--st-ink); }
+.snip-item .st-btn--icon { width: 28px; height: 28px; }
+.snip-item .st-icon { width: 15px; height: 15px; }
+
+@keyframes panel-in { from { opacity: 0; transform: translateX(-8px); } }
+@keyframes row-in { from { opacity: 0; transform: translateY(3px); } }
+@keyframes palette-in { from { opacity: 0; transform: translateX(-50%) scale(.98); } }
+@keyframes scrim-in { from { opacity: 0; } }
+
+/* the sidebar button only exists where the sidebar is off-canvas */
+@media (max-width: 1000px) {
+  .sessions { position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: 280px; max-width: 86vw;
+              border-right: 0; border-radius: 0 var(--st-r-lg) var(--st-r-lg) 0; box-shadow: var(--st-sh-pop);
+              transform: translateX(-100%); transition: transform 240ms var(--st-ease); animation: none; }
+  .sessions[data-open="true"] { transform: none; }
+  /* the panel floats over the chat here, so the chat goes back to a single column: naming column 2
+     on a one-column grid would make the browser add an empty column and shove the chat right */
+  .chat-split { grid-template-columns: minmax(0, 1fr); }
+  .chat-split > .chat-scroll, .chat-split > .composer-wrap { grid-column: 1; }
+  #sessions-btn { display: inline-flex; }
+}
+
+/* the kit's own motion stays; the add-ons' motion is what a person asked to have off */
+@media (prefers-reduced-motion: reduce) {
+  .sessions, .session-row, .palette, .palette-row, .snip-item, .st-msg.msg-in, .palette-scrim, .snip-scrim,
+  #chat.swap-out, #chat.swap-in { animation: none; }
+  .sessions, .session-row__open, .session-row__tools, .session-row--gone, .palette-row, .msg-edit { transition: none; }
+}
+
 /* ---------------------------------------------------------------- narrow screens */
 @media (max-width: 1000px) {
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -171,14 +295,25 @@ main { flex: 1; min-height: 0; display: flex; }
   .cfg-form .st-input { margin-bottom: var(--st-s-2); }
 }
 @media (max-width: 640px) {
-  .st-header { padding: 0 var(--st-s-3); gap: var(--st-s-2); }
+  .st-header { padding: 0 var(--st-s-3); gap: var(--st-s-2); flex: 0 1 auto; min-width: 0; }
+  .st-header__spacer { display: none; }          /* the empty gap is what pushes the buttons off a narrow screen */
   .st-header .st-tabs { margin-left: 0; }
   .st-tab { padding: 0 10px; }
   .st-tab .st-icon { display: none; }
   #pill-text { display: none; }
+  #lang-btn { width: 36px; padding: 0; }          /* the header is tight here: the globe alone, like the tabs */
+  #lang-btn .lang-btn__label { display: none; }
   .chat { padding: var(--st-s-5) var(--st-s-4); }
   .composer-wrap { padding: 0 var(--st-s-3) var(--st-s-3); }
   .monitor, .about { padding: var(--st-s-4); }
   .facts { grid-template-columns: 1fr; gap: 2px; }
   .facts dd { margin-bottom: var(--st-s-2); }
+}
+
+/* a 360px phone has to keep the theme button on screen: the header needs 354px here,
+   so the gaps and the side padding drop to the smallest step */
+@media (max-width: 420px) {
+  .st-header { gap: var(--st-s-1); padding: 0 var(--st-s-2); }
+  .st-tab { padding: 0 8px; }
+  .st-pill { padding: 0 9px; }
 }
