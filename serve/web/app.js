@@ -1153,8 +1153,15 @@ function autoTitle(msgs) {
 }
 function saveSessions() {
   if (!labs.sessions) return;
-  const s = currentSession();
-  if (!s) return;
+  let s = currentSession();
+  if (!s) {
+    // the switch went on over an empty chat: the first saved message opens the conversation
+    if (!messages.length) return;
+    s = {id: uid(), title: autoTitle(messages), created: epoch(), updated: epoch(), titleLocked: false, messages: []};
+    sessions.unshift(s);
+    sessionId = s.id;
+    renderSessions();
+  }
   s.messages = slim(messages);
   s.updated = epoch();
   if (!s.titleLocked) s.title = autoTitle(s.messages);

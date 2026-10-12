@@ -64,6 +64,15 @@ class Migration(unittest.TestCase):
     def test_the_migration_only_runs_with_the_switch_on(self):
         self.assertIn("if (labs.sessions) { migrateSessions(); mountSidebar(); } else unmountSidebar();", JS)
 
+    def test_the_first_saved_message_opens_a_conversation(self):
+        """The switch can go on over an empty chat; the first save must open the row, not drop the words."""
+        text = body("saveSessions")
+        self.assertIn("let s = currentSession();", text)
+        self.assertIn("if (!messages.length) return;", text)
+        self.assertIn("sessionId = s.id;", text)
+        self.assertIn("renderSessions();", text)
+        self.assertIn("s.messages = slim(messages);", text)
+
     def test_the_title_comes_from_the_first_question(self):
         text = body("autoTitle")
         self.assertIn("role === \"user\"", text)
