@@ -1402,7 +1402,7 @@ $("img-form").onsubmit = async (ev) => {
   if ($("img-seed").value !== "") body.seed = Number($("img-seed").value);
   $("img-go").disabled = true;
   const t0 = performance.now();
-  $("img-hint").textContent = "Generating\u2026 (a minute or more on a small GPU)";
+  $("img-hint").textContent = T("img.hintGenerating");
   try {
     const r = await fetch("v1/images/generations", {method: "POST", headers: headers(true), body: JSON.stringify(body)});
     const j = await r.json();
@@ -1417,10 +1417,10 @@ $("img-form").onsubmit = async (ev) => {
       fig.append(img, cap);
       $("img-results").prepend(fig);
     }
-    $("img-hint").textContent = "Done. Right-click an image to save it.";
+    $("img-hint").textContent = T("img.hintDone");
   } catch (e) {
     $("img-hint").textContent = "";
-    toast("error", "No image", String(e.message || e), 8000);
+    toast("error", T("img.noImage"), String(e.message || e), 8000);
   } finally {
     $("img-go").disabled = false;
   }

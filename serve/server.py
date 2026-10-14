@@ -6928,6 +6928,10 @@ def main() -> int:
         else:
             print("[strata] usage_log is on, but there is no run config to keep the daily token counts beside: "
                   "the Monitor's 30-day chart covers the current run", flush=True)
+        import atexit
+        # The file lags memory by up to WRITE_EVERY_S, and closing the window is how the server usually ends:
+        # take the newest counts to disk on the way out, so the last requests of a session are not lost.
+        atexit.register(lambda: svc.usage.flush(force=True))
     if a.config:                                        # the Chat settings shared with other apps, from last time
         svc.shared_path = str(Path(a.config).with_suffix("")) + ".shared-settings.json"
         try:

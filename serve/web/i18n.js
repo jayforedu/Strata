@@ -581,6 +581,11 @@ const I18N = (function () {
     "toast.mcpOff": {en: "MCP tools off", zh: "MCP 工具已關閉"},
     "toast.showOn": {en: "Thinking shown", zh: "已顯示思考"},
     "toast.showOff": {en: "Thinking hidden", zh: "已隱藏思考"},
+
+    // ---- app.js: the images tab (the vision model's page)
+    "img.hintGenerating": {en: "Generating\u2026 (a minute or more on a small GPU)", zh: "產生中\u2026（小顯卡可能要一分鐘以上）"},
+    "img.hintDone": {en: "Done. Right-click an image to save it.", zh: "完成。用右鍵點圖片就能存檔。"},
+    "img.noImage": {en: "No image", zh: "沒有圖片"},
   };
 
   function detect() {
