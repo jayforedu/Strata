@@ -125,6 +125,42 @@ main { flex: 1; min-height: 0; display: flex; }
 .table-wrap.all { max-height: 420px; overflow-y: auto; }
 .req-totals { margin: 0; font-size: var(--st-fs-sm); }
 .req-totals:empty { display: none; }
+/* the 30-day token chart: two bars per day, input in the accent and output in the info colour */
+.usage-card { display: flex; flex-direction: column; gap: var(--st-s-3); }
+.usage-legend { display: flex; gap: var(--st-s-4); font-size: var(--st-fs-xs); }
+.usage-key { display: inline-flex; align-items: center; gap: 6px; color: var(--st-ink-muted); }
+.usage-key::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: currentColor; }
+.usage-key--in { color: var(--st-accent); }
+.usage-key--out { color: var(--st-info); }
+/* 30 groups of bars need their width: on a phone the chart scrolls sideways, as the request table does. */
+.usage-scroll { overflow-x: auto; }
+.st-bars { display: block; width: 100%; min-width: 560px; height: auto; }
+.usage-bar--in { fill: var(--st-accent); }
+.usage-bar--out { fill: var(--st-info); }
+.usage-axis { stroke: var(--st-line); }
+.usage-grid { stroke: var(--st-line-soft); stroke-dasharray: 3 4; }
+.usage-cap, .usage-day, .usage-none { fill: var(--st-ink-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.usage-day--now { fill: var(--st-ink); font-weight: var(--st-fw-medium); }
+.usage-none { font-size: var(--st-fs-sm); }
+.usage-sum { margin: 0; font-size: var(--st-fs-sm); }
+.usage-note { margin: 0; }
+.usage-sum:empty, .usage-note:empty { display: none; }
+/* A day's counts read from a card of their own, not from the browser's tooltip: the native one needs a long
+   hover, ignores the page's colours, and never appears at all when the chart is read by a tap. */
+.usage-scroll { position: relative; }
+.usage-hit { fill: transparent; }
+.usage-g:hover .usage-bar { opacity: .85; }
+.usage-tip { position: absolute; top: 2px; left: 0; transform: translateX(-50%); z-index: 3;
+  display: flex; flex-direction: column; gap: 3px; padding: var(--st-s-2) var(--st-s-3);
+  background: var(--st-surface-2); border: 1px solid var(--st-line); border-radius: var(--st-r-sm);
+  box-shadow: var(--st-sh-pop); font-size: var(--st-fs-xs); white-space: nowrap;
+  pointer-events: none; }
+.usage-tip[hidden] { display: none; }
+.usage-tip__date { color: var(--st-ink); font-weight: var(--st-fw-medium); font-variant-numeric: tabular-nums; }
+.usage-tip__row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--st-s-4); }
+.usage-tip__val { color: var(--st-ink); font-variant-numeric: tabular-nums; }
+.usage-tip__sub { color: var(--st-ink-muted); margin-inline-start: 6px; }
+.usage-tip__row--req { border-top: 1px solid var(--st-line-soft); padding-top: 4px; }
 .cc-card { display: flex; flex-direction: column; gap: var(--st-s-3); }
 .cc-bars { display: grid; grid-template-columns: 1fr 1fr; gap: var(--st-s-2) var(--st-s-6); }
 .cc-bars[hidden] { display: none; }

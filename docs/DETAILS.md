@@ -897,8 +897,8 @@ print(r.choices[0].message.content)
 - **Model settings in the web page (0.1.39, #564).** The About tab's Model settings card shows and changes a few of
   the keys above in `strata-<model>.json`: the `sampling` defaults (temperature, top_p, top_k, min_p),
   `reasoning_budget_tokens`, `fit_max_tokens`, `anthropic_thinking`, `effort_position`, `aliases`, `idle_unload_s`,
-  `lazy_load`, `engine_silence_s`, `api_monitor`, `open_browser` and `--vram-reserve-mib`. An empty field removes the
-  key (its default). Every other key of the file stays as it is, the earlier file is kept as
+  `lazy_load`, `engine_silence_s`, `api_monitor`, `usage_log`, `open_browser` and `--vram-reserve-mib`. An empty
+  field removes the key (its default). Every other key of the file stays as it is, the earlier file is kept as
   `strata-<model>.json.bak`, and the model uses the change from its next start. Only Strata's own page can save
   (JSON, the API key when one is set, as for the Chat settings); the network, key, MCP and program keys are not
   editable there.
@@ -1998,6 +1998,21 @@ responses are unaffected. Headers are not recorded, and the monitor key is kept 
 Treat request history as sensitive input/output when exposing Strata on a network: set an API key as above.
 The page uses relative URLs and works through the existing host binding or a reverse proxy.
 It switches between English and 繁體中文 the same way the app does, on the same saved choice.
+
+### Token usage by day: the Monitor's 30-day chart
+
+`GET /api/usage` answers the input and the output tokens of each of the last 30 local calendar days, oldest first,
+one row per day: a day without requests is a row of zeros, so the chart's dates stay continuous. `?days=N` asks
+for 1..90 days. The reply adds `window`, `totals`, `days_with_usage`, `persistent`, `since` and `error`, and uses
+the existing API-key check. The Monitor tab draws it as a bar chart - one pair of bars per day, input in the
+accent colour and output in the info colour - and asks at most once a minute, only while that tab is open.
+
+Only counts are kept: no prompt, no answer, no API key, no per-request time. The counts live in memory and cover
+the current run; `"usage_log": true` in `strata-<model>.json` (or `serve/server.py --usage-log`) also keeps them
+in `strata-<model>.usage.json` beside the config, so the chart survives a restart. Off by default: nothing is
+written to disk. That file keeps the last 45 days and is rewritten at most every 30 s, by the thread that
+finished a request - never inside the status lock. A file that cannot be read or written is reported in `error`
+and the counts go on in memory all the same.
 
 ### Prompt buffers: `bo` shares `emb` (#1454)
 

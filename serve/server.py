@@ -64,6 +64,7 @@ from serve.winjob import contain  # noqa: E402
 from serve.structured import StructuredOutputError, prepare_format, validated_json  # noqa: E402
 from serve import responses as responses_api  # noqa: E402
 from serve.responses import ResponsesError, error_body as responses_error_body  # noqa: E402
+from serve import usage as usage_log  # noqa: E402
 
 IM_END = "<|im_end|>"
 IMAGE_PAD = "<|image_pad|>"
@@ -2908,6 +2909,10 @@ class Service:
         self.totals = {"since": time.time(), "requests": 0, "prompt_tokens": 0, "reused": 0, "output_tokens": 0,
                        "prompt_ms": 0.0, "decode_ms": 0.0,
                        "drafts_offered": 0, "drafts_accepted": 0}   # #457: the MTP drafts, summed where reported
+        # the Monitor's 30-day token chart (serve/usage.py): the input and output tokens of each local day.
+        # In memory only, like the history and the totals; the config's "usage_log" (or --usage-log) keeps them
+        # in strata-<model>.usage.json as well, so the chart survives a restart
+        self.usage = usage_log.DailyUsage()
         self.last_timings = None                         # the last finished request's, llama.cpp's names (/v1/status)
         from serve.prometheus import Latencies
         self.latencies = Latencies()                     # GET /metrics in Prometheus text: the latency histograms
@@ -4206,6 +4211,8 @@ class Service:
                             t["decode_ms"] += last.get("decode_ms") or 0.0
                             t["drafts_offered"] += last.get("drafts_offered") or 0
                             t["drafts_accepted"] += last.get("drafts_accepted") or 0
+                            self.usage.record(input_tokens=seen, output_tokens=n,
+                                              reused_tokens=last.get("reused") or 0)
                             ft0 = st.get("first_token")             # this request's own (#465: one per request)
                             self.latencies.observe(ft0 - started if ft0 else None, n,
                                                    (last.get("decode_ms") or 0.0) / 1000, time.time() - started)
@@ -4243,6 +4250,7 @@ class Service:
         finally:
             if emb:
                 Path(emb).unlink(missing_ok=True)
+            self.usage.flush()          # the 30-day chart's file, off the status_lock and at most every 30 s
         for ev in cut(parser.finish(finish)):
             yield "event", ev
         if parser.rescued or parser.refused:
@@ -5047,6 +5055,12 @@ def make_handler(svc: Service):
                                {"error": {"message": "request no longer retained"}} if records is None else
                                records if request_id else {"requests": records, "retention": 100, "persistent": False,
                                                           "loaded": svc.loaded(), "auto_load": hasattr(svc.engine, "restart")})
+                return
+            if path == "/api/usage":
+                # the Monitor's 30-day token chart (serve/usage.py): counts per local day, no prompts, answers or keys
+                if self._authorized():
+                    days = parse_qs(urlsplit(self.path).query).get("days", [None])[0]
+                    self._json(200, svc.usage.view(days))
                 return
             if path == "/settings":
                 if self._authorized():
@@ -6331,6 +6345,10 @@ def main() -> int:
     ap.add_argument("--api-monitor", action="store_true",
                     help="the API request monitor at /api-monitor: keeps the last 100 requests' prompts and answers in "
                          "memory (also \"api_monitor\": true in the config; off by default)")
+    ap.add_argument("--usage-log", action="store_true",
+                    help="keep the Monitor's token counts per day (input and output) in strata-<model>.usage.json, so "
+                         "the 30-day bar chart survives a restart (also \"usage_log\": true in the config; off by "
+                         "default: the chart then covers the current run, and nothing is written)")
     ap.add_argument("--idle-unload", type=float, default=None, metavar="SECONDS",
                     help="unload the model after this many seconds without requests, so other programs (games, other "
                          "model servers) can use the VRAM; the next request loads it again (also \"idle_unload_s\" "
@@ -6554,6 +6572,14 @@ def main() -> int:
     svc.backend = cfg.get("backend")                    # "hip": the AMD cards' readings come from sysfs (#301)
     if a.config:
         svc.config_path = a.config                      # #564: the web page's Settings view
+    if a.usage_log or cfg.get("usage_log") is True:      # the Monitor's 30-day token chart, kept beside the config
+        kept = svc.usage.enable(str(Path(a.config).with_suffix("")) + ".usage.json" if a.config else None)
+        if kept:
+            print(f"[strata] the Monitor keeps the token counts of the last {usage_log.KEEP_DAYS} days in "
+                  f"{kept.name} (counts only: no prompts, answers or keys)", flush=True)
+        else:
+            print("[strata] usage_log is on, but there is no run config to keep the daily token counts beside: "
+                  "the Monitor's 30-day chart covers the current run", flush=True)
     if a.config:                                        # the Chat settings shared with other apps, from last time
         svc.shared_path = str(Path(a.config).with_suffix("")) + ".shared-settings.json"
         try:

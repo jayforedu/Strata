@@ -134,6 +134,17 @@
         </div>
       </div>
 
+      <div class="st-card usage-card" id="usage-card">
+        <div class="req-head"><span class="card-title" data-i18n="monitor.tokenUsage">Token usage</span>
+          <span class="usage-legend"><span class="usage-key usage-key--in" data-i18n="usage.input">Input</span>
+            <span class="usage-key usage-key--out" data-i18n="usage.output">Output</span></span></div>
+        <div class="usage-scroll" id="usage-scroll"><svg class="st-bars" id="usage-chart" viewBox="0 0 720 190" role="img"
+          data-i18n-aria="usage.aria" aria-label="Input and output tokens of the last 30 days: one pair of bars per day"></svg>
+          <div class="usage-tip" id="usage-tip" hidden></div></div>
+        <p class="muted usage-sum" id="usage-sum"></p>
+        <p class="muted small usage-note" id="usage-note"></p>
+      </div>
+
       <div class="st-card cc-card" id="cc-card">
         <div class="req-head"><span class="card-title" data-i18n="monitor.conversationCache">Conversation cache</span><span class="muted small" id="cc-sum"></span></div>
         <div class="cc-bars" id="cc-bars" hidden>

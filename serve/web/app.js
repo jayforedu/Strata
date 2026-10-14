@@ -164,9 +164,10 @@ function showTab(name) {
   for (const v of ["chat", "monitor", "about"]) $(`view-${v}`).hidden = v !== tab;
   if (location.hash.slice(1) !== tab) history.replaceState(null, "", tab === "chat" ? location.pathname : `#${tab}`);
   if (tab === "chat") $("input").focus();
-  if (tab === "monitor") loadMcp();
+  if (tab === "monitor") { loadMcp(); loadUsage(); }
   if (tab === "about") loadConfig();
   if (lastMetrics) render(lastMetrics);
+  if (usageInfo) renderUsage();
 }
 for (const b of document.querySelectorAll(".st-tab")) b.onclick = () => showTab(b.dataset.tab);
 window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
@@ -180,7 +181,11 @@ function headers(json = false) {
   return h;
 }
 $("api-key").value = store.get("apikey", "");
-$("api-key").onchange = () => { store.set("apikey", $("api-key").value.trim()); toast("success", T("toast.keySaved"), T("toast.keySavedNote")); };
+$("api-key").onchange = () => {   // a key saved: the Monitor's usage card can read again
+  store.set("apikey", $("api-key").value.trim());
+  toast("success", T("toast.keySaved"), T("toast.keySavedNote"));
+  loadUsage(true);
+};
 
 let health = {model: "strata", images: false, max_context: 0};
 async function loadHealth() {
@@ -254,7 +259,8 @@ async function poll() {
   } catch (e) {
     if (++metricsFailures === 3) setPill("error", T("pill.notReachable"));
   }
-  if (tab === "monitor" && ++mcpTick % 10 === 0) loadMcp();       // server states change rarely: every 10 s
+  // server states and the daily token counts change rarely: every 10 s, and loadUsage asks at most once a minute
+  if (tab === "monitor" && ++mcpTick % 10 === 0) { loadMcp(); loadUsage(); }
   setTimeout(poll, 1000);
 }
 
@@ -443,6 +449,162 @@ function renderMonitor(live, hw, st, eng, h, last, requests, totals, kept) {
   $("req-totals").textContent = renderTotals(totals);
 }
 
+// The Monitor's 30-day token chart (GET /api/usage, serve/usage.py): the input and the output tokens of each of
+// the last 30 local days, one pair of bars per day.  The server sums by day, so one read is at most 90 rows
+// however busy the model is, and the page asks once a minute, once per finished answer, and only while the
+// Monitor tab is open.  Days with no usage are left out and the bars are centred, so a server that started on
+// Tuesday draws Tuesday onward in the middle of the card, not one bar pinned to its right edge.
+const USAGE = {w: 720, h: 190, top: 14, base: 150, days: 30, cacheMs: 60000, groupW: 24, padX: 10, labelHalf: 17, minW: 560};
+let usageInfo = null, usageAt = 0, usageBusy = false, usageKeyNeeded = false, usageShown = [];
+
+function usageTop(max) {
+  if (!(max > 0)) return 1;                       // a round axis top (1, 2, 5 x 10^n) keeps its labels readable
+  const p = Math.pow(10, Math.floor(Math.log10(max)));
+  const m = max / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+}
+
+// Only the days that were used, newest last, at most USAGE.days of them: 30 empty groups say nothing, and a
+// chart of the two days a fresh server has reads better than a chart of 28 zeros and two bars.
+function usageDays(view) {
+  return (view.days || []).filter((d) => d.requests > 0).slice(-USAGE.days);
+}
+
+const usageDate = (d) => String(d).slice(5).replace("-", "/");
+// Width of the bar band for n days: the drawing and the card's own floor both read it, so a chart of
+// two days is two days wide and needs no scrollbar, while a full 30 days keeps the 560px floor.
+const usageBand = (n) => (n ? Math.min(USAGE.groupW, (USAGE.w - 2 * USAGE.padX) / n) * n : 0);
+
+function usageSvg(days) {
+  const n = days.length;
+  const inner = USAGE.w - 2 * USAGE.padX;
+  const gw = n ? Math.min(USAGE.groupW, inner / n) : 0;    // one group of two bars per day, wide when there are few
+  const band = usageBand(n);
+  const x0 = USAGE.padX + (inner - band) / 2;              // the groups start from the middle of the card
+  const bar = Math.min(9, Math.max(2, gw * 0.36));
+  const gap = Math.max(1, gw * 0.08);
+  const pair = bar * 2 + gap;
+  const max = Math.max(0, ...days.map((d) => Math.max(d.input_tokens || 0, d.output_tokens || 0)));
+  const top = usageTop(max);
+  const h = (v) => (v > 0 ? Math.max(1.5, (v / top) * (USAGE.base - USAGE.top)) : 0);   // a small day stays visible
+  // A date needs ~34 units to read, so the labels step by whole groups and always land on the newest day.
+  const labelEvery = Math.max(1, Math.ceil(n / Math.max(1, Math.min(n, Math.floor(band / 34)))));
+  const labelOff = (n - 1) % labelEvery;
+  const lo = x0 + Math.min(USAGE.labelHalf, band / 2), hi = x0 + band - Math.min(USAGE.labelHalf, band / 2);
+  const out = [`<line class="usage-grid" x1="${x0.toFixed(2)}" y1="${USAGE.top}" x2="${(x0 + band).toFixed(2)}"`,
+               ` y2="${USAGE.top}"/>`,
+               `<text class="usage-cap" x="${x0.toFixed(2)}" y="${USAGE.top - 5}">`,
+               `${esc(top >= 1e6 ? `${fmt(top / 1e6, top >= 1e7 ? 0 : 1)}M` : kfmt(top))}</text>`,
+               `<line class="usage-axis" x1="${x0.toFixed(2)}" y1="${USAGE.base}" x2="${(x0 + band).toFixed(2)}"`,
+               ` y2="${USAGE.base}"/>`];
+  days.forEach((d, i) => {
+    const gx = x0 + i * gw;                                // this day's group, and the pair centred in it
+    const x = gx + (gw - pair) / 2;
+    out.push(`<g class="usage-g" data-day="${i}">`);
+    const ih = h(d.input_tokens), oh = h(d.output_tokens);
+    out.push(`<rect class="usage-bar usage-bar--in" x="${x.toFixed(2)}" y="${(USAGE.base - ih).toFixed(2)}"`,
+             ` width="${bar.toFixed(2)}" height="${ih.toFixed(2)}" rx="1.5"/>`);
+    out.push(`<rect class="usage-bar usage-bar--out" x="${(x + bar + gap).toFixed(2)}"`,
+             ` y="${(USAGE.base - oh).toFixed(2)}" width="${bar.toFixed(2)}" height="${oh.toFixed(2)}" rx="1.5"/>`);
+    // The whole group answers to the pointer, not the bars: a day with one thin bar is as easy to read as a tall day.
+    out.push(`<rect class="usage-hit" x="${gx.toFixed(2)}" y="0" width="${gw.toFixed(2)}"`,
+             ` height="${USAGE.base + 20}"/>`);
+    out.push("</g>");
+    if (i % labelEvery === labelOff) {                 // the newest day is always named, the rest step by groups
+      const lx = Math.min(Math.max(gx + gw / 2, lo), hi);  // the first and the last date never run off the card
+      out.push(`<text class="usage-day${i === n - 1 ? " usage-day--now" : ""}"`,
+               ` x="${lx.toFixed(2)}" y="${USAGE.base + 16}" text-anchor="middle">`,
+               `${esc(usageDate(d.date))}</text>`);
+    }
+  });
+  if (!n) out.push(`<text class="usage-none" x="${USAGE.w / 2}" y="${USAGE.base - 24}" text-anchor="middle">`,
+                   `${esc(T("usage.noBars"))}</text>`);
+  return out.join("");
+}
+
+function renderUsage() {
+  const box = $("usage-chart"), sum = $("usage-sum"), note = $("usage-note");
+  const u = usageInfo;
+  usageTipHide();                                          // a repaint drops the old day's card
+  if (!u || !Array.isArray(u.days) || !u.days.length) {     // the read failed: the card says so, the tab keeps working
+    box.innerHTML = "";
+    usageShown = [];
+    sum.textContent = "";
+    note.textContent = usageKeyNeeded ? T("usage.keyNeeded") : T("usage.unreachable");
+    return;
+  }
+  usageShown = usageDays(u);
+  box.innerHTML = usageSvg(usageShown);
+  box.style.minWidth = `${Math.min(USAGE.minW, Math.round(usageBand(usageShown.length) + 2 * USAGE.padX))}px`;
+  const t = u.totals || {}, w = u.window || {};
+  sum.textContent = usageShown.length
+    ? T("usage.sum", {days: fmt(usageShown.length), a: fmt(t.input_tokens), b: fmt(t.output_tokens),
+                     n: fmt(t.requests), from: usageDate(usageShown[0].date),
+                     to: usageDate(usageShown[usageShown.length - 1].date)})
+    : T("usage.none", {days: fmt(w.days || u.days.length)});
+  note.textContent = u.error ? T("usage.error", {msg: u.error})
+                             : (u.persistent ? "" : T("usage.runOnly"));   // textContent: no escaping needed
+}
+
+async function loadUsage(force = false) {
+  if (usageBusy) return;
+  if (usageInfo && !force && Date.now() - usageAt < USAGE.cacheMs) return;   // fresh: no request, no repaint
+  usageBusy = true;
+  try {
+    const r = await fetch(`api/usage?days=${USAGE.days}`, {headers: headers()});
+    usageKeyNeeded = r.status === 401;
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    usageInfo = await r.json();
+    usageKeyNeeded = false;
+  } catch (e) {
+    if (usageKeyNeeded) usageInfo = null;      // a missing key will not fix itself between two polls
+  }
+  usageAt = Date.now();
+  usageBusy = false;
+  renderUsage();
+}
+
+// The day's counts in a card of their own, shown the moment the pointer touches a group.  The browser's own
+// <title> tooltip needs a long hover, follows the browser's plain style, and is out of reach on a phone.
+function usageTipShow(g) {
+  const tip = $("usage-tip"), box = $("usage-scroll");
+  const d = usageShown[Number(g.dataset.day)];
+  if (!tip || !box || !d) return;
+  const row = (cls, label, val, sub) => `<div class="usage-tip__row">`
+    + `<span class="usage-key ${cls}">${esc(label)}</span>`
+    + `<span class="usage-tip__val">${esc(val)}`
+    + `${sub ? `<span class="usage-tip__sub">${esc(sub)}</span>` : ""}</span></div>`;
+  tip.innerHTML = `<div class="usage-tip__date">${esc(usageDate(d.date))}</div>`
+    + row("usage-key--in", T("usage.input"), fmt(d.input_tokens),
+          d.reused_tokens ? T("usage.tipReused", {r: fmt(d.reused_tokens)}) : "")
+    + row("usage-key--out", T("usage.output"), fmt(d.output_tokens))
+    + `<div class="usage-tip__row usage-tip__row--req"><span class="usage-tip__val">`
+    + `${esc(T("usage.tipReq", {n: fmt(d.requests)}))}</span></div>`;
+  tip.hidden = false;
+  const gr = g.getBoundingClientRect(), br = box.getBoundingClientRect();
+  const half = tip.offsetWidth / 2;                        // measured once the card is on screen
+  const lo = box.scrollLeft + half + 2, hi = box.scrollLeft + box.clientWidth - half - 2;
+  const cx = gr.left - br.left + box.scrollLeft + gr.width / 2;
+  tip.style.left = `${(hi > lo ? Math.min(Math.max(cx, lo), hi) : (lo + hi) / 2).toFixed(1)}px`;
+}
+function usageTipHide() {
+  const tip = $("usage-tip");
+  if (tip) tip.hidden = true;
+}
+// One listener for the whole chart, set once: the groups are rebuilt on every repaint.
+const usageChartEl = $("usage-chart"), usageScrollEl = $("usage-scroll");
+if (usageChartEl) {
+  usageChartEl.addEventListener("pointerover", (e) => {
+    const g = e.target.closest(".usage-g");
+    if (g) usageTipShow(g);
+  });
+  usageChartEl.addEventListener("pointerleave", usageTipHide);
+  usageChartEl.addEventListener("click", (e) => {          // a tap reads a day on a phone
+    const g = e.target.closest(".usage-g");
+    if (g) usageTipShow(g); else usageTipHide();
+  });
+}
+if (usageScrollEl) usageScrollEl.addEventListener("scroll", usageTipHide);
 function facts(el, rows) {
   el.innerHTML = rows.filter((r) => r[1] != null && r[1] !== "").map(([k, v, copy]) =>
     `<dt>${esc(k)}</dt><dd>${copy ? `<code>${esc(v)}</code><button class="st-btn st-btn--icon" data-copy="${esc(v)}" aria-label="${esc(T("fact.copy"))}">${icon("copy")}</button>` : esc(v)}</dd>`).join("");
@@ -991,6 +1153,7 @@ async function runAssistant() {
   updateAssistant(el, m, false);
   saveChat();
   scrollDown();
+  if (tab === "monitor") loadUsage(true);   // the answer is counted: the 30-day chart follows it at once
 }
 
 $("composer").onsubmit = (e) => { e.preventDefault(); send(); };
@@ -1219,6 +1382,7 @@ showTab(location.hash.slice(1) || "chat");
 document.addEventListener("strata:lang", () => {
   renderChat();
   if (lastMetrics) render(lastMetrics);
+  if (usageInfo) renderUsage();
   if (tab === "about") loadConfig();
   setBusy(!!busy);
   outputs();
