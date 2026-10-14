@@ -67,11 +67,8 @@ from serve.winjob import contain  # noqa: E402
 from serve.structured import StructuredOutputError, prepare_format, validated_json  # noqa: E402
 from serve import responses as responses_api  # noqa: E402
 from serve.responses import ResponsesError, error_body as responses_error_body  # noqa: E402
-<<<<<<< HEAD
 from serve import usage as usage_log  # noqa: E402
-=======
 from serve import images as images_api  # noqa: E402
->>>>>>> origin/main
 
 IM_END = "<|im_end|>"
 IMAGE_PAD = "<|image_pad|>"

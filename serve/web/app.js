@@ -192,16 +192,10 @@ let health = {model: "strata", images: false, max_context: 0};
 async function loadHealth() {
   try {
     health = await (await fetch("health")).json();
-<<<<<<< HEAD
     $("attach-btn").title = health.images ? T("chat.attachTitleImages") : T("chat.attachTitle");
     $("chat-empty-sub").textContent = T("chat.emptySubModel", {model: health.model});
-=======
-    $("attach-btn").title = health.images ? "Attach a text file or a picture (or drop it here)"
-                                          : "Attach a text file (or drop it here)";
-    $("chat-empty-sub").textContent = `${health.model} runs on this PC. Nothing leaves it.`;
     $("tab-btn-images").hidden = !health.image_generation;
     if (location.hash === "#images" && health.image_generation) showTab("images");
->>>>>>> origin/main
   } catch (e) {
     setTimeout(loadHealth, 2000);
   }

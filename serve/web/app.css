@@ -231,8 +231,6 @@ main { flex: 1; min-height: 0; display: flex; }
   .facts { grid-template-columns: 1fr; gap: 2px; }
   .facts dd { margin-bottom: var(--st-s-2); }
 }
-<<<<<<< HEAD
-
 /* a 360px phone has to keep the theme button on screen: the header needs 354px here,
    so the gaps and the side padding drop to the smallest step */
 @media (max-width: 420px) {
@@ -240,7 +238,7 @@ main { flex: 1; min-height: 0; display: flex; }
   .st-tab { padding: 0 8px; }
   .st-pill { padding: 0 9px; }
 }
-=======
+
 /* Images tab (POST /v1/images/generations) */
 .img-form{display:flex;flex-direction:column;gap:12px}
 .img-prompt{height:auto;padding:10px 14px;resize:vertical}
@@ -249,4 +247,3 @@ main { flex: 1; min-height: 0; display: flex; }
 .img-results figure{margin:0}
 .img-results img{max-width:100%;border-radius:var(--st-r-lg);display:block}
 .img-results figcaption{font-size:var(--st-fs-sm, 13px);color:var(--st-ink-2, inherit);margin-top:4px}
->>>>>>> origin/main
