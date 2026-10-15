@@ -20,6 +20,8 @@ const fmt = (n, d = 0) => (n == null || Number.isNaN(n) ? "–" : Number(n).toLo
 const kfmt = (n) => (n == null ? "–" : n >= 1000 ? `${fmt(n / 1000, n >= 10000 ? 0 : 1)}k` : fmt(n));
 // a context size: 32768 -> "32K" (powers of two), else like kfmt
 const ctxfmt = (n) => (n && n % 1024 === 0 ? `${fmt(n / 1024)}K` : kfmt(n));
+// a token count: the full number up to a million, then millions to two decimals (1,234,567 -> 1.23M)
+const tokfmt = (n) => (n == null || Number.isNaN(n) ? "–" : n < 1e6 ? fmt(n) : `${fmt(n / 1e6, 2)}M`);
 const gb = (b, d = 1) => (b == null ? "–" : fmt(b / 1073741824, d));   // memory: binary GB, as Windows shows it
 // I18N.t for a UI string; TK for a string the server may answer with a word this page has no translation for
 const T = (k, p) => I18N.t(k, p);
@@ -312,10 +314,10 @@ function renderConvCache(c) {
   $("cc-sum").textContent = c.requests ? T("cc.sum", {a: fmt(c.requests_reused), b: fmt(c.requests)}) : "";
   const share = c.prompt_tokens ? T("cc.share", {n: fmt((100 * c.reused_tokens) / c.prompt_tokens)}) : "";
   const event = c.last_event ? T("cc.event", {what: T(c.last_event === "parked" ? "cc.parkedWord" : "cc.restoredWord"),
-                                           n: fmt(c.last_tokens), when: since(c.last_at)}) : null;
+                                           n: tokfmt(c.last_tokens), when: since(c.last_at)}) : null;
   facts($("cc-facts"), [
-    [T("cc.factLastRequest"), c.last_prompt != null ? T("cc.factLastValue", {a: fmt(c.last_reused || 0), b: fmt(c.last_prompt)}) : null],
-    [T("cc.factReused"), c.requests ? `${fmt(c.reused_tokens)} tokens${share}` : null],
+    [T("cc.factLastRequest"), c.last_prompt != null ? T("cc.factLastValue", {a: tokfmt(c.last_reused || 0), b: tokfmt(c.last_prompt)}) : null],
+    [T("cc.factReused"), c.requests ? `${tokfmt(c.reused_tokens)} tokens${share}` : null],
     [T("cc.factParked"), c.enabled ? `${fmt(c.parks)} / ${fmt(c.restores)}${c.evictions ? T("cc.evicted", {n: fmt(c.evictions)}) : ""}` : null],
     [T("cc.factLastSwitch"), c.enabled ? event : null],
   ]);
@@ -328,8 +330,8 @@ function renderTotals(t) {
   const read = t.prompt_tokens - t.reused;
   const pSpeed = t.prompt_ms > 0 && read > 0 ? T("state.atSpeed", {s: fmt(read / (t.prompt_ms / 1000))}) : "";
   const oSpeed = t.decode_ms > 0 && t.output_tokens > 0 ? T("state.atSpeed", {s: fmt(t.output_tokens / (t.decode_ms / 1000), 1)}) : "";
-  return T("totals.line", {since, n: fmt(t.requests), read, ps: pSpeed, reused: fmt(t.reused),
-                           out: fmt(t.output_tokens), os: oSpeed});
+  return T("totals.line", {since, n: fmt(t.requests), read: tokfmt(read), ps: pSpeed, reused: tokfmt(t.reused),
+                           out: tokfmt(t.output_tokens), os: oSpeed});
 }
 function renderMonitor(live, hw, st, eng, h, last, requests, totals, kept) {
   // model state
@@ -342,18 +344,18 @@ function renderMonitor(live, hw, st, eng, h, last, requests, totals, kept) {
     prog.dataset.tone = "info";
     if (live.prompt_total) {
       pct = (100 * live.prompt_read) / live.prompt_total;
-      detail = T("state.readDetail", {a: fmt(live.prompt_read), b: fmt(live.prompt_total), pct: fmt(pct)});
+      detail = T("state.readDetail", {a: tokfmt(live.prompt_read), b: tokfmt(live.prompt_total), pct: fmt(pct)});
     } else {
-      detail = T("state.tokens", {n: fmt(live.prompt_tokens)});
+      detail = T("state.tokens", {n: tokfmt(live.prompt_tokens)});
     }
   } else if (live.state === "generating") {
     label = TK("phase." + live.phase, T("state.generating"));
     delete prog.dataset.tone;
     pct = live.max_tokens ? Math.min(100, (100 * live.generated) / live.max_tokens) : 0;
-    detail = T("state.genDetail", {n: fmt(live.generated), s: fmt(live.tok_s, 1)});
+    detail = T("state.genDetail", {n: tokfmt(live.generated), s: fmt(live.tok_s, 1)});
   } else if (last) {
     delete prog.dataset.tone;
-    detail = T("state.lastDetail", {n: fmt(last.output_tokens),
+    detail = T("state.lastDetail", {n: tokfmt(last.output_tokens),
                                     s: last.decode_tok_s ? T("state.atSpeed", {s: fmt(last.decode_tok_s, 1)}) : ""});
   }
   $("state-label").textContent = label;
@@ -439,8 +441,8 @@ function renderMonitor(live, hw, st, eng, h, last, requests, totals, kept) {
       const fresh = r.prompt_tokens == null ? null : Math.max(0, r.prompt_tokens - (r.reused || 0));
       const prefillRate = fresh > 0 && r.prompt_ms > 0 ? fresh / (r.prompt_ms / 1000) : null;
         (r.pcie_share ? ` <span class="muted" title="${esc(T("badge.pcieTitle"))}">+${(r.pcie_share * 100).toFixed(1)}% PCIe</span>` : "");
-      return `<tr><td>${esc(t)}</td><td><span class="st-badge ${cls}">${esc(text)}</span>${proj}</td><td class="num">${fmt(r.prompt_tokens)}</td>
-        <td class="num">${fmt(r.reused)}</td><td class="num">${fmt(r.output_tokens)}</td><td class="num">${fmt(prefillRate)}</td><td class="num">${fmt(r.decode_tok_s, 1)}</td>
+      return `<tr><td>${esc(t)}</td><td><span class="st-badge ${cls}">${esc(text)}</span>${proj}</td><td class="num">${tokfmt(r.prompt_tokens)}</td>
+        <td class="num">${tokfmt(r.reused)}</td><td class="num">${tokfmt(r.output_tokens)}</td><td class="num">${fmt(prefillRate)}</td><td class="num">${fmt(r.decode_tok_s, 1)}</td>
         <td class="num">${hit}</td><td class="num">${fmt(r.duration_s, 1)} s</td></tr>`;
     }).join("");
   }
@@ -452,12 +454,12 @@ function renderMonitor(live, hw, st, eng, h, last, requests, totals, kept) {
   $("req-totals").textContent = renderTotals(totals);
 }
 
-// The Monitor's 30-day token chart (GET /api/usage, serve/usage.py): the input and the output tokens of each of
-// the last 30 local days, one pair of bars per day.  The server sums by day, so one read is at most 90 rows
+// The Monitor's 14-day token chart (GET /api/usage, serve/usage.py): the input and the output tokens of each of
+// the last 14 local days, one pair of bars per day.  The server sums by day, so one read is at most 90 rows
 // however busy the model is, and the page asks once a minute, once per finished answer, and only while the
 // Monitor tab is open.  Days with no usage are left out and the bars are centred, so a server that started on
 // Tuesday draws Tuesday onward in the middle of the card, not one bar pinned to its right edge.
-const USAGE = {w: 720, h: 190, top: 14, base: 150, days: 30, cacheMs: 60000, groupW: 24, padX: 10, labelHalf: 17, minW: 560};
+const USAGE = {w: 720, h: 190, top: 14, base: 150, days: 14, cacheMs: 60000, groupW: 24, padX: 10, labelHalf: 17, minW: 560, flatW: 40};
 let usageInfo = null, usageAt = 0, usageBusy = false, usageKeyNeeded = false, usageShown = [];
 
 function usageTop(max) {
@@ -467,7 +469,7 @@ function usageTop(max) {
   return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
 }
 
-// Only the days that were used, newest last, at most USAGE.days of them: 30 empty groups say nothing, and a
+// Only the days that were used, newest last, at most USAGE.days of them: 14 empty groups say nothing, and a
 // chart of the two days a fresh server has reads better than a chart of 28 zeros and two bars.
 function usageDays(view) {
   return (view.days || []).filter((d) => d.requests > 0).slice(-USAGE.days);
@@ -476,12 +478,14 @@ function usageDays(view) {
 const usageDate = (d) => String(d).slice(5).replace("-", "/");
 // Width of the bar band for n days: the drawing and the card's own floor both read it, so a chart of
 // two days is two days wide and needs no scrollbar, while a full 30 days keeps the 560px floor.
-const usageBand = (n) => (n ? Math.min(USAGE.groupW, (USAGE.w - 2 * USAGE.padX) / n) * n : 0);
+// One day's group is at least flatW wide so the date under it can read flat, and never wider than the card.
+const usagePer = (n) => (n ? Math.min(Math.max(USAGE.groupW, USAGE.flatW), (USAGE.w - 2 * USAGE.padX) / n) : 0);
+const usageBand = (n) => usagePer(n) * n;
 
 function usageSvg(days) {
   const n = days.length;
   const inner = USAGE.w - 2 * USAGE.padX;
-  const gw = n ? Math.min(USAGE.groupW, inner / n) : 0;    // one group of two bars per day, wide when there are few
+  const gw = usagePer(n);                                  // one group of two bars per day, wide when there are few
   const band = usageBand(n);
   const x0 = USAGE.padX + (inner - band) / 2;              // the groups start from the middle of the card
   const bar = Math.min(9, Math.max(2, gw * 0.36));
@@ -490,14 +494,14 @@ function usageSvg(days) {
   const max = Math.max(0, ...days.map((d) => Math.max(d.input_tokens || 0, d.output_tokens || 0)));
   const top = usageTop(max);
   const h = (v) => (v > 0 ? Math.max(1.5, (v / top) * (USAGE.base - USAGE.top)) : 0);   // a small day stays visible
-  // A date needs ~34 units to read, so the labels step by whole groups and always land on the newest day.
-  const labelEvery = Math.max(1, Math.ceil(n / Math.max(1, Math.min(n, Math.floor(band / 34)))));
-  const labelOff = (n - 1) % labelEvery;
+  // Every day names itself: flat when a group is wide enough for a date, turned 45 degrees when it is not,
+  // which is what keeps 30 dates from running into each other.
+  const flat = n > 0 && band / n >= 34;
   const lo = x0 + Math.min(USAGE.labelHalf, band / 2), hi = x0 + band - Math.min(USAGE.labelHalf, band / 2);
   const out = [`<line class="usage-grid" x1="${x0.toFixed(2)}" y1="${USAGE.top}" x2="${(x0 + band).toFixed(2)}"`,
                ` y2="${USAGE.top}"/>`,
                `<text class="usage-cap" x="${x0.toFixed(2)}" y="${USAGE.top - 5}">`,
-               `${esc(top >= 1e6 ? `${fmt(top / 1e6, top >= 1e7 ? 0 : 1)}M` : kfmt(top))}</text>`,
+               `${esc(top >= 1e6 ? tokfmt(top) : kfmt(top))}</text>`,
                `<line class="usage-axis" x1="${x0.toFixed(2)}" y1="${USAGE.base}" x2="${(x0 + band).toFixed(2)}"`,
                ` y2="${USAGE.base}"/>`];
   days.forEach((d, i) => {
@@ -513,10 +517,16 @@ function usageSvg(days) {
     out.push(`<rect class="usage-hit" x="${gx.toFixed(2)}" y="0" width="${gw.toFixed(2)}"`,
              ` height="${USAGE.base + 20}"/>`);
     out.push("</g>");
-    if (i % labelEvery === labelOff) {                 // the newest day is always named, the rest step by groups
+    const now = i === n - 1 ? " usage-day--now" : "";
+    if (flat) {
       const lx = Math.min(Math.max(gx + gw / 2, lo), hi);  // the first and the last date never run off the card
-      out.push(`<text class="usage-day${i === n - 1 ? " usage-day--now" : ""}"`,
+      out.push(`<text class="usage-day${now}"`,
                ` x="${lx.toFixed(2)}" y="${USAGE.base + 16}" text-anchor="middle">`,
+               `${esc(usageDate(d.date))}</text>`);
+    } else {                                           // a narrow group turns its date so it still reads
+      const lx = (gx + gw / 2).toFixed(2), ly = USAGE.base + 13;
+      out.push(`<text class="usage-day${now}" x="${lx}" y="${ly}" text-anchor="end"`,
+               ` transform="rotate(-45 ${lx} ${ly})">`,
                `${esc(usageDate(d.date))}</text>`);
     }
   });
@@ -541,7 +551,7 @@ function renderUsage() {
   box.style.minWidth = `${Math.min(USAGE.minW, Math.round(usageBand(usageShown.length) + 2 * USAGE.padX))}px`;
   const t = u.totals || {}, w = u.window || {};
   sum.textContent = usageShown.length
-    ? T("usage.sum", {days: fmt(usageShown.length), a: fmt(t.input_tokens), b: fmt(t.output_tokens),
+    ? T("usage.sum", {days: fmt(usageShown.length), a: tokfmt(t.input_tokens), b: tokfmt(t.output_tokens),
                      n: fmt(t.requests), from: usageDate(usageShown[0].date),
                      to: usageDate(usageShown[usageShown.length - 1].date)})
     : T("usage.none", {days: fmt(w.days || u.days.length)});
@@ -577,10 +587,12 @@ function usageTipShow(g) {
     + `<span class="usage-key ${cls}">${esc(label)}</span>`
     + `<span class="usage-tip__val">${esc(val)}`
     + `${sub ? `<span class="usage-tip__sub">${esc(sub)}</span>` : ""}</span></div>`;
+  // the short form keeps the exact count on the card's second line, where a hover has room for it
+  const sub = (v, extra) => [v >= 1e6 ? T("usage.tipExact", {n: fmt(v)}) : "", extra].filter(Boolean).join(" · ");
   tip.innerHTML = `<div class="usage-tip__date">${esc(usageDate(d.date))}</div>`
-    + row("usage-key--in", T("usage.input"), fmt(d.input_tokens),
-          d.reused_tokens ? T("usage.tipReused", {r: fmt(d.reused_tokens)}) : "")
-    + row("usage-key--out", T("usage.output"), fmt(d.output_tokens))
+    + row("usage-key--in", T("usage.input"), tokfmt(d.input_tokens),
+          sub(d.input_tokens, d.reused_tokens ? T("usage.tipReused", {r: tokfmt(d.reused_tokens)}) : ""))
+    + row("usage-key--out", T("usage.output"), tokfmt(d.output_tokens), sub(d.output_tokens, ""))
     + `<div class="usage-tip__row usage-tip__row--req"><span class="usage-tip__val">`
     + `${esc(T("usage.tipReq", {n: fmt(d.requests)}))}</span></div>`;
   tip.hidden = false;
