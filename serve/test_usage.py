@@ -104,7 +104,7 @@ class Window(unittest.TestCase):
         self.u.record(input_tokens=5, output_tokens=2, at=stamp(date.today() - timedelta(days=40)))
         self.u.record(input_tokens=8, output_tokens=3)
         view = self.u.view(30)
-        self.assertEqual(view["totals"], {"input_tokens": 8, "output_tokens": 3, "requests": 1})
+        self.assertEqual(view["totals"], {"input_tokens": 8, "output_tokens": 3, "requests": 1, "reused_tokens": 0})
 
     def test_the_number_of_days_is_clamped(self):
         self.assertEqual(len(self.u.view(0)["days"]), 1)
@@ -117,8 +117,52 @@ class Window(unittest.TestCase):
         view = self.u.view(30)
         self.assertEqual(len(view["days"]), 30)
         self.assertEqual(view["days_with_usage"], 0)
-        self.assertEqual(view["totals"], {"input_tokens": 0, "output_tokens": 0, "requests": 0})
+        self.assertEqual(view["totals"], {"input_tokens": 0, "output_tokens": 0, "requests": 0, "reused_tokens": 0})
         self.assertIsNone(view["error"])
+
+class MeasuredReuse(unittest.TestCase):
+    """`reused_tokens` is what the conversation cache really held, which is what lets the cost card price
+    a day at its own measured reuse.  A day that never measured it answers null, and that is not the same
+    thing as a day that measured nothing."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "strata-test.usage.json"
+
+    def written(self, days):
+        """A count file as an older Strata left it, read back the way a restart reads it."""
+        Path(self.path).write_text(json.dumps({"version": 1, "days": days}), encoding="utf-8")
+        return usage_log.DailyUsage(self.path)
+
+    def test_a_day_written_before_reuse_was_tracked_is_not_measured(self):
+        u = self.written({date.today().isoformat():
+                              {"input_tokens": 100, "output_tokens": 5, "requests": 2}})
+        self.assertIsNone(u.view(30)["days"][-1]["reused_tokens"])
+
+    def test_a_day_that_measured_no_reuse_answers_zero(self):
+        u = self.written({date.today().isoformat():
+                              {"input_tokens": 100, "output_tokens": 5, "requests": 2, "reused_tokens": 0}})
+        self.assertEqual(u.view(30)["days"][-1]["reused_tokens"], 0)
+
+    def test_a_day_without_requests_is_measured_zero(self):
+        gap = (date.today() - timedelta(days=9)).isoformat()
+        u = self.written({date.today().isoformat():
+                              {"input_tokens": 10, "output_tokens": 1, "requests": 1, "reused_tokens": 4}})
+        rows = {r["date"]: r for r in u.view(30)["days"]}
+        self.assertEqual(rows[gap]["reused_tokens"], 0)
+
+    def test_the_totals_add_the_days_that_measured_and_skip_the_days_that_did_not(self):
+        old = (date.today() - timedelta(days=3)).isoformat()
+        u = self.written({date.today().isoformat():
+                              {"input_tokens": 10, "output_tokens": 1, "requests": 1, "reused_tokens": 4},
+                              old: {"input_tokens": 20, "output_tokens": 2, "requests": 1}})
+        self.assertEqual(u.view(30)["totals"]["reused_tokens"], 4)
+
+    def test_a_request_recorded_now_is_measured_now(self):
+        u = usage_log.DailyUsage()
+        u.record(input_tokens=100, output_tokens=5, reused_tokens=60)
+        self.assertEqual(u.view(30)["days"][-1]["reused_tokens"], 60)
 
 
 class File(unittest.TestCase):

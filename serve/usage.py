@@ -31,10 +31,14 @@ def day_key(at: float | None = None) -> str:
     return time.strftime("%Y-%m-%d", time.localtime(time.time() if at is None else at))
 
 
-def _count(v) -> int:
-    """A token count to keep: a whole number, never negative.  A bool is not a token count (True is not 1 token)."""
+def _count(v, default=0):
+    """A token count to keep: a whole number, never negative.  A bool is not a token count (True is not 1 token).
+
+    `default` is what a count that is not there answers: 0 where counts add up, None where "not measured"
+    has to stay apart from "measured zero" - the cost card prices a day it never measured at the assumed
+    hit rate, and a day it measured at nothing at that number."""
     if isinstance(v, bool) or not isinstance(v, (int, float)):
-        return 0
+        return default
     return max(0, int(v))
 
 
@@ -96,7 +100,7 @@ class DailyUsage:
             kept[key] = {"input_tokens": _count(v.get("input_tokens")),
                          "output_tokens": _count(v.get("output_tokens")),
                          "requests": _count(v.get("requests")),
-                         "reused_tokens": _count(v.get("reused_tokens"))}
+                         "reused_tokens": _count(v.get("reused_tokens"), None)}
         with self._lock:
             self._days = kept
 
@@ -154,7 +158,9 @@ class DailyUsage:
         Every day of the window is named, requests or not, so the chart's dates stay continuous and a day
         without usage is a bar of zeros rather than a missing slot.  The counts are the sum of the requests
         that finished on that day; `reused_tokens` is the part of the input the conversation cache already
-        held, which the Monitor's request table shows beside Prompt."""
+        held, which the Monitor's request table shows beside Prompt.  A day that did work with no reuse
+        figure of its own - a count file written before reuse was tracked - answers `null` for it, which
+        is "not measured", not "measured zero"."""
         try:
             n = int(days)
         except (TypeError, ValueError):
@@ -167,18 +173,23 @@ class DailyUsage:
             since, read_error, write_error = self.since, self.read_error, self.write_error
         rows = []
         for k in window:
-            d = kept.get(k) or {}
+            d = kept.get(k)
+            if d is None:               # a day with no requests: nothing was read, so nothing was reused
+                rows.append({"date": k, "input_tokens": 0, "output_tokens": 0,
+                             "requests": 0, "reused_tokens": 0})
+                continue
             rows.append({"date": k,
                          "input_tokens": int(d.get("input_tokens") or 0),
                          "output_tokens": int(d.get("output_tokens") or 0),
                          "requests": int(d.get("requests") or 0),
-                         "reused_tokens": int(d.get("reused_tokens") or 0)})
+                         "reused_tokens": _count(d.get("reused_tokens"), None)})
         self.flush()                    # a page load is a good moment to take the newest counts to disk
         return {"days": rows,
                 "window": {"days": n, "from": window[0], "to": window[-1]},
                 "totals": {"input_tokens": sum(r["input_tokens"] for r in rows),
                            "output_tokens": sum(r["output_tokens"] for r in rows),
-                           "requests": sum(r["requests"] for r in rows)},
+                           "requests": sum(r["requests"] for r in rows),
+                           "reused_tokens": sum(r["reused_tokens"] or 0 for r in rows)},
                 "days_with_usage": sum(1 for r in rows if r["requests"]),
                 "persistent": bool(self._path),
                 "since": since,

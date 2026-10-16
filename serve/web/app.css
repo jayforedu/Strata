@@ -166,6 +166,50 @@ main { flex: 1; min-height: 0; display: flex; }
 .cc-bars[hidden] { display: none; }
 .cc-note { margin: 0; }
 .cc-note:empty { display: none; }
+/* the paid-model cost estimate: the chart's own counts, priced at a paid API's rate (serve/pricing.py) */
+.cost-card { display: flex; flex-direction: column; gap: var(--st-s-3); }
+.cost-card[hidden] { display: none; }
+/* how far the counts reach; a panel is also the picker for the table below, as the .seg control is */
+.cost-scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--st-s-2); }
+.cost-scope { display: flex; flex-direction: column; gap: 2px; padding: var(--st-s-2) var(--st-s-3);
+              text-align: start; background: var(--st-surface-2); border: 1px solid var(--st-line);
+              border-radius: var(--st-r-sm); color: var(--st-ink-muted);
+              font: 500 var(--st-fs-xs)/1.4 var(--st-font); cursor: pointer; }
+.cost-scope[aria-pressed="true"] { border-color: var(--st-accent); color: var(--st-ink); }
+.cost-scope[aria-disabled="true"] { opacity: .55; cursor: default; }
+.cost-scope__v { color: var(--st-ink); font-size: var(--st-fs-md); font-weight: var(--st-fw-bold);
+                 font-variant-numeric: tabular-nums; }
+.cost-scope__sub { font-variant-numeric: tabular-nums; }
+/* the breakdown: the new-TWD estimate and the cache tag read as a second line of the same cell */
+.cost-sub { display: block; color: var(--st-ink-muted); font-size: var(--st-fs-xs); font-weight: 400; }
+.cost-tag { display: inline-block; margin-top: 2px; padding: 0 6px; border-radius: 999px;
+            background: var(--st-surface-2); color: var(--st-ink-muted);
+            font-size: var(--st-fs-xs); font-weight: 400; }
+.cost-total td { border-top: 1px solid var(--st-line); font-weight: var(--st-fw-bold); }
+.cost-empty { text-align: center; color: var(--st-ink-muted); }
+/* the rate, the assumed cache hit, the reset */
+.cost-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+                 gap: var(--st-s-3); align-items: end; }
+.cost-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--st-fs-xs);
+              color: var(--st-ink-muted); }
+.cost-field .st-input { height: 34px; width: 100%; max-width: 220px; }
+/* the line under the whole strip: when the window in hand uses the assumed hit rate at all */
+.cost-hint { margin: 0; color: var(--st-ink-muted); font-size: var(--st-fs-xs);
+           font-weight: 400; line-height: 1.35; }
+.cost-hint:empty { display: none; }
+.cost-controls .st-btn { height: 34px; max-width: 220px; }
+/* the price table: one row per paid model, its three prices under the head's labels */
+.cost-prices { display: flex; flex-direction: column; gap: var(--st-s-2); }
+.cost-price { display: grid; grid-template-columns: minmax(110px, 1.4fr) repeat(3, minmax(0, 1fr));
+              gap: var(--st-s-2); align-items: center; }
+.cost-price__head { color: var(--st-ink-muted); font-size: var(--st-fs-xs); }
+.cost-price .num { text-align: right; }
+.cost-price__name { font-size: var(--st-fs-sm); }
+.cost-price .st-input { height: 34px; width: 100%; max-width: 220px; margin-left: auto;
+                        text-align: right; font-variant-numeric: tabular-nums; }
+.cost-edited { border-color: var(--st-accent); }
+.cost-note { margin: 0; }
+.cost-note:empty { display: none; }
 .mcp-card { display: flex; flex-direction: column; gap: var(--st-s-3); }
 .cfg-form { display: grid; grid-template-columns: minmax(180px, max-content) minmax(0, 1fr); gap: var(--st-s-3) var(--st-s-4);
             align-items: center; }
@@ -213,6 +257,12 @@ main { flex: 1; min-height: 0; display: flex; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .monitor-row { grid-template-columns: 1fr; }
   .cc-bars { grid-template-columns: 1fr; }
+  .cost-scopes, .cost-controls { grid-template-columns: 1fr; }
+  .cost-field .st-input, .cost-controls .st-btn { max-width: none; }
+  /* the price table keeps its four columns here: a stack of single inputs loses which
+     column each price belongs to, so the grid only tightens */
+  .cost-price { grid-template-columns: minmax(84px, 1fr) repeat(3, minmax(0, 1fr)); }
+  .cost-price .st-input { max-width: none; margin-left: 0; }
   .cfg-form { grid-template-columns: 1fr; gap: 4px; }
   .cfg-form .st-input { margin-bottom: var(--st-s-2); }
 }

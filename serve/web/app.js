@@ -539,6 +539,7 @@ function renderUsage() {
   const box = $("usage-chart"), sum = $("usage-sum"), note = $("usage-note");
   const u = usageInfo;
   usageTipHide();                                          // a repaint drops the old day's card
+  renderCost();                                            // the cost card rides in the same read
   if (!u || !Array.isArray(u.days) || !u.days.length) {     // the read failed: the card says so, the tab keeps working
     box.innerHTML = "";
     usageShown = [];
@@ -620,6 +621,265 @@ if (usageChartEl) {
   });
 }
 if (usageScrollEl) usageScrollEl.addEventListener("scroll", usageTipHide);
+// ------------------------------------------------------------------ paid-model cost estimate (GET /api/usage, POST /api/usage/cost)
+// The Monitor's cost card: the token counts the chart above already reads, priced at a paid API's rate from
+// serve/pricing.py.  Strata sends nothing to that API and asks for no key - the money is what the same tokens
+// would have cost, and the card says so.  The figures travel in the chart's own read, so the card adds no
+// request of its own, and picking another comparison model recalculates here, for nothing.
+const COST = {baseline: null, rate: null, cache: null, scope: null, busy: false, error: null};
+const costData = () => (usageInfo && usageInfo.cost) || null;
+const costSettings = () => (costData() || {}).settings || {};
+const costModels = () => costSettings().models || [];
+const costModelOf = (id) => costModels().find((m) => m.id === id) || null;
+const costBaseline = () => COST.baseline || ((costData() || {}).model || {}).baseline || null;
+const costRate = () => Number(COST.rate != null ? COST.rate : costSettings().usd_twd) || 0;
+const costShare = () => Number(COST.cache != null ? COST.cache : costSettings().cache_assumption) || 0;
+const costScopes = () => (costData() || {}).scopes || {};
+// Which scope the table breaks down: the widest history the server can really reach, unless the user
+// picked one.  The run's own counts are still priced in the server's answer, but the card speaks in
+// days: a run that has not finished yet is not a day of spending, and it is the first thing to disappear.
+function costScopeKey() {
+  const sc = costScopes();
+  if (COST.scope && COST.scope !== "session" && sc[COST.scope]) return COST.scope;
+  return ["history", "today"].find((k) => sc[k] && sc[k].reliable) || "today";
+}
+// The same split serve/pricing.py makes: the prompt divided into what an API would have had to read (full
+// price) and what it would have found in its own cache (the cache price), the cached part never counted twice,
+// the answer never counted twice for its thinking.  A cache count that is missing stays an assumption.
+function costCalc(tokens, prices, share) {
+  const t = tokens || {}, p = prices || {};
+  const inp = Number(t.input_tokens) || 0, out = Number(t.output_tokens) || 0;
+  const measured = t.cached_input_tokens != null && !Number.isNaN(Number(t.cached_input_tokens));
+  let cached = measured ? Number(t.cached_input_tokens) : Math.round(inp * Math.max(0, Math.min(1, share)));
+  cached = Math.min(Math.max(0, cached), inp);
+  const uncached = Math.max(0, inp - cached);
+  const a = uncached * (Number(p.input) || 0) / 1e6;
+  const b = cached * (Number(p.cached_input) || 0) / 1e6;
+  const c = out * (Number(p.output) || 0) / 1e6;
+  return {inp, cached, uncached, out, input_cost: a, cached_cost: b, output_cost: c,
+          total: a + b + c, hit: inp ? cached / inp : 0, assumed: !measured,
+          measuredDays: measured && inp ? 1 : 0, assumedDays: !measured && inp ? 1 : 0};
+}
+// A window of days is priced day by day, exactly as serve/pricing.py prices it: a day whose reuse
+// Strata measured pays for its own reuse, and only a day with no reuse figure of its own borrows the
+// assumed hit rate.  The card reads the very rows the chart draws, so picking another comparison model
+// recalculates the whole window here, for nothing, and a measured day is never priced at a guess.
+function costDaysOf(scopeKey) {
+  const days = ((usageInfo || {}).days) || [];
+  const c = costData() || {}, sc = (c.scopes || {})[scopeKey] || {};
+  if (scopeKey === "today") return sc.date ? days.filter((x) => x.date === sc.date) : [];
+  const w = c.usage || {};
+  return days.filter((x) => (!w.from || x.date >= w.from) && (!w.to || x.date <= w.to));
+}
+function costCalcDays(rows, prices, share) {
+  const s = {inp: 0, cached: 0, uncached: 0, out: 0, input_cost: 0, cached_cost: 0, output_cost: 0,
+             total: 0, hit: 0, assumed: false, measuredDays: 0, assumedDays: 0};
+  rows.forEach((r) => {
+    const k = costCalc({input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+                        cached_input_tokens: r.reused_tokens}, prices, share);
+    s.inp += k.inp; s.cached += k.cached; s.uncached += k.uncached; s.out += k.out;
+    s.input_cost += k.input_cost; s.cached_cost += k.cached_cost; s.output_cost += k.output_cost;
+    s.total += k.total; s.measuredDays += k.measuredDays; s.assumedDays += k.assumedDays;
+  });
+  s.hit = s.inp ? s.cached / s.inp : 0;
+  s.assumed = s.assumedDays > 0;
+  return s;
+}
+// One scope, priced: a window of days day by day, a single day at its own counts.  A scope whose day
+// rows did not travel (a server older than the chart) falls back to the counts the server priced.
+function costScopeCalc(scopeKey, prices, share) {
+  const rows = costDaysOf(scopeKey);
+  if (rows.length) return costCalcDays(rows, prices, share);
+  return costCalc((((costData() || {}).scopes || {})[scopeKey] || {}).tokens, prices, share);
+}
+// The cached row names what a window is made of instead of blending it into one share that reads as a
+// measurement: a window of measured days, a window of assumed days, and a window of both.
+const costCacheTag = (k) => (!k.inp ? null
+  : k.measuredDays && k.assumedDays ? T("cost.mixed", {m: fmt(k.measuredDays), a: fmt(k.assumedDays)})
+  : k.assumedDays ? T("cost.assumed", {pct: pctf(k.hit)})
+  : T("cost.measured", {pct: pctf(k.hit)}));
+// A session's cost lives under a cent, so it keeps its decimals; a month's does not need six of them.
+const money = (v) => (v == null || Number.isNaN(v) ? "–"
+  : v >= 1 ? `$${fmt(v, 2)}` : v >= 0.0001 ? `$${v.toFixed(4).replace(/0+$/, "").replace(/\.$/, "0")}` : "$0.00");
+// A price is a price, not a session's total: it shows its cents, and the thousandths a price list
+// really carries (a cached input at $0.175) rather than rounding them away.
+const priceDecimals = (v) => (Math.round(Number(v) * 1000) % 10 ? 3 : 2);
+const moneyPrice = (v) => (v == null || Number.isNaN(v) ? "–" : `$${fmt(v, priceDecimals(v))}`);
+const moneyTwd = (v) => { const x = (Number(v) || 0) * costRate(); return `NT$${fmt(x, x >= 100 ? 0 : 2)}`; };
+const pctf = (v) => `${fmt((Number(v) || 0) * 100, Math.abs(Number(v) || 0) * 100 >= 10 ? 0 : 1)}%`;
+const costClock = (epoch) => new Date(Number(epoch) * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+
+function renderCost() {
+  const card = $("cost-card");
+  if (!card) return;
+  const c = costData();
+  card.hidden = !c;                                  // an older server sends no cost figures: the card stays out
+  if (!c) return;
+  const s = costSettings(), models = s.models || [], model = c.model || {};
+  const scopes = c.scopes || {}, usage = c.usage || {};
+  // A pick the server has echoed back is no longer a local override: the card then follows the
+  // server, so "restore the defaults" shows the shipped prices on the next read.
+  if (COST.baseline && model.baseline === COST.baseline) COST.baseline = null;
+  if (COST.rate != null && Number(costSettings().usd_twd) === Number(COST.rate)) COST.rate = null;
+  if (COST.cache != null && Number(costSettings().cache_assumption) === Number(COST.cache)) COST.cache = null;
+  const baseline = costBaseline(), prices = costModelOf(baseline);
+  const scopeKey = costScopeKey();
+  const priced = scopes[scopeKey] && scopes[scopeKey].reliable ? costScopeCalc(scopeKey, prices, costShare()) : null;
+  $("cost-when").textContent = c.time ? costClock(c.time) : "";
+  // A: which model is loaded, which paid model it is compared with, and how sure that pairing's price is.
+  facts($("cost-facts"), [
+    [T("cost.factModel"), model.name],
+    [T("cost.factFamily"), model.known ? [model.family_title, model.quant].filter(Boolean).join(" · ")
+                                        : T("cost.unknownModel")],
+    [T("cost.factBaseline"), prices ? prices.title : T("cost.noBaseline")],
+    [T("cost.factPairing"), model.picked ? T("cost.picked") : T("cost.paired")],
+    [T("cost.factVerified"), model.verified ? T("cost.verified") : T("cost.unverified")],
+    [T("cost.factPrices"), T(model.verified ? "cost.priceVersionVerified" : "cost.priceVersion", {v: s.version || "–"})],
+    [T("cost.factUpdated"), T("cost.checked", {d: (prices || {}).checked || "–"})],
+  ]);
+  // B: the three reaches the counts have.  A scope the server cannot reach says it has no history; the
+  // counts of this run are never shown as if they were today's or the last days'.  A panel is the picker
+  // for the table below, so the breakdown is one tap away and needs no extra control.
+  const label = {today: () => T("cost.today"),
+                 history: () => T("cost.history", {days: fmt((usage.window || {}).days || 0)})};
+  // TWD first with the US dollar figure under it: a local run is paid in TWD, the price list it is
+  // compared with is in USD, so the card leads with the money the user spends and keeps the other in sight.
+  $("cost-scopes").innerHTML = ["today", "history"].map((k) => {
+    const sc = scopes[k] || {}, cost = sc.reliable ? costScopeCalc(k, prices, costShare()) : null;
+    const sub = cost ? [money(cost.total), sc.date ? usageDate(sc.date) : ""].filter(Boolean).join(" · ")
+                     : (sc.date ? usageDate(sc.date) : (sc.since ? costClock(sc.since) : T("cost.noHistory")));
+    return `<button type="button" class="cost-scope" data-scope="${k}" aria-pressed="${k === scopeKey}"`
+      + `${cost ? "" : ' aria-disabled="true"'}><span>${esc(label[k]())}</span>`
+      + `<span class="cost-scope__v">${cost ? esc(moneyTwd(cost.total)) : "–"}</span>`
+      + `<span class="cost-scope__sub">${esc(sub)}</span></button>`;
+  }).join("");
+  // C: the breakdown of the scope in hand, every figure from the counts the server sent.
+  const body = $("cost-body");
+  if (!scopes[scopeKey]) {
+    body.innerHTML = `<tr><td class="cost-empty" colspan="4">${esc(T("cost.unavailable"))}</td></tr>`;
+  } else if (!scopes[scopeKey].reliable) {
+    body.innerHTML = `<tr><td class="cost-empty" colspan="4">${esc(T("cost.noScopeRows"))}</td></tr>`;
+  } else {
+    const k = priced, p = prices || {};
+    const row = (name, tokens, price, cost, tag) => `<tr><td class="cost-item">${esc(name)}</td>`
+      + `<td class="num">${esc(fmt(tokens))}</td>`
+      + `<td class="num">${esc(moneyPrice(price))}</td>`
+       + `<td class="num">${esc(moneyTwd(cost))}<span class="cost-sub">${esc(money(cost))}</span>`
+      + `${tag ? `<span class="cost-tag">${esc(tag)}</span>` : ""}</td></tr>`;
+    body.innerHTML = [
+      row(T("cost.uncached"), k.uncached, p.input, k.input_cost, null),
+      row(T("cost.cached"), k.cached, p.cached_input, k.cached_cost, costCacheTag(k)),
+      row(T("cost.output"), k.out, p.output, k.output_cost, T("cost.outputNote")),
+      `<tr class="cost-total"><td class="cost-item">${esc(T("cost.total"))}</td>`
+      + `<td class="num">${esc(fmt(k.inp + k.out))}</td><td class="num">–</td>`
+       + `<td class="num">${esc(moneyTwd(k.total))}<span class="cost-sub">${esc(money(k.total))}</span></td></tr>`,
+    ].join("");
+  }
+  // D: the comparison baseline.  Picking one changes only the prices; the model on the GPU stays as it is.
+  const sel = $("cost-baseline");
+  // No baseline of its own (an unknown model): the select names that state instead of showing its
+  // first option as if it were the one in use - the card prices nothing until the user picks one.
+  sel.innerHTML = (baseline ? "" : `<option value="" selected>${esc(T("cost.pickBaseline"))}</option>`)
+    + models.map((m) => `<option value="${esc(m.id)}"${m.id === baseline ? " selected" : ""}>`
+      + `${esc(m.title)}</option>`).join("");
+  sel.disabled = !models.length;
+  // E: the TWD rate and the assumed cache hit, typed here and kept beside the run config.  A field the user
+  // is typing in is never overwritten by a repaint.
+  const rate = $("cost-rate"), cache = $("cost-cache");
+  if (document.activeElement !== rate) rate.value = String(costRate());
+  if (document.activeElement !== cache) cache.value = String(Math.round(costShare() * 100));
+  // The assumed hit rate is a fallback for the days Strata never measured, so the field says whether
+  // the window in hand uses it at all: a nameless number next to a measured window reads as a guess
+  // the card took, which is exactly what it no longer is.
+  const hint = $("cost-cache-hint");
+  if (hint) hint.textContent = !priced ? T("cost.cacheFallback")
+    : priced.assumedDays ? T("cost.cacheUsed", {a: fmt(priced.assumedDays)})
+    : T("cost.cacheNotUsed");
+  const head = `<div class="cost-price cost-price__head"><span>${esc(T("cost.priceModel"))}</span>`
+    + `<span class="num">${esc(T("cost.priceIn"))}</span><span class="num">${esc(T("cost.priceCached"))}</span>`
+    + `<span class="num">${esc(T("cost.priceOut"))}</span></div>`;
+  const edited = s.prices || {};
+  $("cost-prices").innerHTML = head + models.map((m) => {
+    const cell = (f) => `<input type="number" class="st-input${(edited[m.id] || {})[f] != null ? " cost-edited" : ""}"`
+      + ` min="0" max="10000" step="0.001" inputmode="decimal" aria-label="${esc(m.title)}"`
+      + ` data-model="${esc(m.id)}" data-field="${f}" value="${fmt(m[f], priceDecimals(m[f]))}">`;
+    return `<div class="cost-price"><span class="cost-price__name">${esc(m.title)}`
+      + `${m.overridden ? `<span class="cost-tag">${esc(T("cost.edited"))}</span>` : ""}</span>`
+      + `${cell("input")}${cell("cached_input")}${cell("output")}</div>`;
+  }).join("");
+  const bits = [T("cost.note")];
+  if (!model.known) bits.push(T("cost.unknownHint"));
+  if (!usage.persistent) bits.push(T("cost.notPersistent"));
+  if (usage.error) bits.push(T("usage.error", {msg: usage.error}));
+  const bad = s.error || COST.error;
+  if (bad) bits.push(T("cost.saveError", {msg: bad}));
+  $("cost-note").textContent = bits.join(" ");       // textContent: no escaping needed
+}
+
+async function postCost(payload) {
+  if (COST.busy) return;
+  COST.busy = true;
+  try {
+    const r = await fetch("api/usage/cost", {method: "POST", headers: headers(true), body: JSON.stringify(payload)});
+    let b = {};
+    try { b = await r.json(); } catch (e) { /* an error page, not JSON */ }
+    if (!r.ok) throw new Error((b.error || {}).message || `HTTP ${r.status}`);
+    COST.error = null;
+    // The answer carries the settings as the server saved them: applying them here shows the new price,
+    // the reset, the new rate the moment the save lands, with no second read of /api/usage.
+    if (b.settings && usageInfo && usageInfo.cost) usageInfo.cost.settings = b.settings;
+    usageAt = 0;                                        // the counts follow on the next refresh
+    // The pick stays until the read above echoes it (see renderCost): clearing it here would repaint
+    // the card with the counts read before the save, i.e. the baseline the user just left.
+  } catch (e) {
+    COST.error = String(e.message || e);
+    toast("error", T("toast.notSaved"), COST.error, 6000);
+  }
+  COST.busy = false;
+  renderCost();
+}
+
+const costBaselineEl = $("cost-baseline"), costScopeEl = $("cost-scopes");
+const costRateEl = $("cost-rate"), costCacheEl = $("cost-cache"), costPriceEl = $("cost-prices");
+if (costBaselineEl) costBaselineEl.addEventListener("change", () => {
+  COST.baseline = costBaselineEl.value || null;
+  const fam = ((costData() || {}).model || {}).family;  // a pick the pairing table can name is kept,
+  if (fam && COST.baseline) postCost({baselines: {[fam]: COST.baseline}});   // so the next load starts on it
+  renderCost();                                         // the same counts, priced here: no request, no reload
+});
+if (costScopeEl) costScopeEl.addEventListener("click", (e) => {
+  const b = e.target.closest(".cost-scope");
+  if (!b || b.getAttribute("aria-disabled") === "true") return;
+  COST.scope = b.dataset.scope;
+  renderCost();
+});
+if (costRateEl) costRateEl.addEventListener("change", () => {
+  const v = Number(costRateEl.value);
+  if (Number.isNaN(v) || v <= 0 || v > 1000) { renderCost(); return; }
+  COST.rate = v;
+  renderCost();
+  postCost({usd_twd: v});
+});
+if (costCacheEl) costCacheEl.addEventListener("change", () => {
+  const v = Number(costCacheEl.value);
+  if (Number.isNaN(v) || v < 0 || v > 100) { renderCost(); return; }
+  COST.cache = v / 100;
+  renderCost();
+  postCost({cache_assumption: v / 100});
+});
+if (costPriceEl) costPriceEl.addEventListener("change", (e) => {
+  const i = e.target.closest("input[data-model]");
+  if (!i) return;
+  const v = Number(i.value);
+  if (Number.isNaN(v) || v < 0 || v > 10000) { renderCost(); return; }
+  postCost({prices: {[i.dataset.model]: {[i.dataset.field]: v}}});
+});
+if ($("cost-reset")) $("cost-reset").addEventListener("click", () => {
+  COST.scope = null;   // the card follows the server again: the shipped prices, the pairing table's
+  COST.baseline = null; COST.rate = null; COST.cache = null;   // baseline, the rate and the share
+  postCost({reset: true});
+});
+
 function facts(el, rows) {
   el.innerHTML = rows.filter((r) => r[1] != null && r[1] !== "").map(([k, v, copy]) =>
     `<dt>${esc(k)}</dt><dd>${copy ? `<code>${esc(v)}</code><button class="st-btn st-btn--icon" data-copy="${esc(v)}" aria-label="${esc(T("fact.copy"))}">${icon("copy")}</button>` : esc(v)}</dd>`).join("");

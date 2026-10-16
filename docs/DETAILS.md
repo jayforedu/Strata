@@ -2060,6 +2060,68 @@ written to disk. That file keeps the last 45 days and is rewritten at most every
 finished a request - never inside the status lock. A file that cannot be read or written is reported in `error`
 and the counts go on in memory all the same.
 
+### Paid-model cost equivalent: the Monitor's cost card
+
+`GET /api/usage` answers one more key, `cost`, in the same read: the Monitor's cost card, priced by
+`serve/pricing.py`. It costs nothing extra to keep - the card rides in the chart's own request, which the page
+makes at most once a minute while the Monitor tab is open, and picking another comparison model recalculates in
+the page with no request at all.
+
+What it shows is what the same tokens would have cost through a paid API, not a bill: Strata sends nothing to
+that API, asks for no key, and the model on the GPU is untouched. The counts are the ones the server already
+keeps - `prompt_tokens` (the whole prompt, the conversation cache's reused part included), `reused` (that
+reused part) and `output_tokens` (the answer, thinking included). The prompt is split into what an API would
+have had to read at the full price and what it would have found in its own cache at the cache price: the cached
+part is never counted twice, never free, and the answer is charged once.  A window is priced day by day
+(`price_days`): every day pays for the reuse `serve/usage.py` counted for it, and only a day with no reuse
+figure of its own - a count file written before reuse was tracked - falls back to the user's assumed hit
+rate (70% by default).  A day that never measured its reuse is therefore `null` in the chart's own rows,
+kept apart from a day that measured nothing, and the card names which of the two a window is made of
+(measured days, assumed days, or both) beside the cached row.  The field beside it is labelled a fallback,
+and says when the window in hand does not use it at all.
+
+The server answers three scopes, each with the reach its counts really have: this run (`Service.totals`),
+today, and the whole window of daily counts.  The card shows the two that speak in days - today and the
+window - and prices the widest one it can reach; the run's own counts stay in the answer, unshown, because
+a run that has not finished is not a day of spending.  A scope the server cannot reach - with
+`"usage_log"` off the daily counts live only in memory - answers `reliable: false`, the card shows "no
+history kept" there and the table says it has no counts to price, so the run's own numbers are never
+shown as today's or the last days'.
+
+The model is identified from three real signals, strongest first: the run config's own name
+(`strata-swift-iq3_xxs.json` is Swift), the model id the server answers with, and the model file paths in the
+config's `args`. A quant suffix (`IQ3_XXS`, `UD-IQ4_XS`, `Q8_0`, ...) only names the size and never decides the
+family. Nothing matching is "unknown model": no baseline, no price, and the card says to pick a comparison
+model yourself.
+
+Every price lives in `serve/pricing.py` (`PAID_MODELS`), in USD per 1,000,000 tokens, with its source page,
+currency, effective date and last checked date beside it.  The table - Claude Opus 5.5 at
+$4.00 / $0.20 / $20.00, Claude Sonnet 5.5 at $2.00 / $0.10 / $10.00, GPT-5.3-Codex at $1.75 / $0.175 / $14.00
+(input / cached input / output) - is confirmed: `verified` is true for all three, the user confirmed it on
+2026-10-16, and the card says so beside the table's version (`PRICING_VERSION`).  A model added later
+starts `verified: false` and the card then reads "estimate, not verified". `long_context` and `tiers` are
+the fields to fill in once a price list with a long-context surcharge or a service tier is confirmed. The
+default pairing (Qwen3.8-Flash-Next, Unsloth and NVFP4 against Opus, Swift 1.5 and Qwen3.6-35B-A3B against
+Sonnet, Coder against GPT-5.3-Codex) is a comparison for money, not a claim that the two models are equally
+able.
+
+What the user changes - a price, a comparison baseline, the USD/TWD rate, the assumed cache hit rate - goes in
+`strata-<model>.cost.json` beside the run config, never in the run config: the card adds a file of its own, and
+"Restore default prices" deletes it. `POST /api/usage/cost` takes them (JSON from Strata's own page only, as
+`/settings`), answers `changed`, `settings` and the file's path, and answers 400 with a message for a number
+that is not a price. A cost file that cannot be written is named in the card's note and never fails a request.
+The card leads with the new-dollar amount and keeps the US dollar figure under it; the rate is one the
+user types, not a live rate.  The price table itself stays in USD per 1,000,000 tokens, as the vendors
+print it.
+
+Checked with `python -m unittest serve.test_pricing`: 44 cases - the arithmetic and the cache split, the
+day-by-day pricing of a window (measured days at their own reuse, an unmeasured day at the assumption, a
+day that read nothing as neither), the identification of the Swift, Coder, Unsloth, NVFP4 and Qwen3.6
+variants with their quant suffixes, the unknown model getting no price, the settings file across a restart
+and a reset, and both endpoints over HTTP on a mock engine (no GPU, no network).  `serve.test_usage` adds
+28 cases, five of them the `reused_tokens` of a day: null when it was never measured, 0 when it measured
+nothing, and the totals adding only the days that measured.
+
 ### Prompt buffers: `bo` shares `emb` (#1454)
 
 The prompt path's half-output buffer `bo` reuses the embedding buffer `emb`, which is dead after the first hyper-connection broadcast: T x 2560 floats less VRAM per chunk (320 MiB at 32768 rows). The planner still counts those bytes by default, so the auto chunk and the cache slots the prompt path borrows are exactly those of 0.1.40.3 and the output bits are unchanged. `STRATA_EMB_REUSE_ACCOUNT=1` lets the planner use the saved bytes: where VRAM limits the chunk it grows (RTX 3060, IQ3_XXS: 6400 to 6656 tokens, 1652 to 1670 borrowed slots, prompt about +3.9%). A different chunk changes the prompt path's rounding, so prompt residuals are not byte-identical to the default; greedy output matched in our runs. Opt-in until it has a KL measurement.

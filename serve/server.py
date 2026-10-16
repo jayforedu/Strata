@@ -68,6 +68,7 @@ from serve.structured import StructuredOutputError, prepare_format, validated_js
 from serve import responses as responses_api  # noqa: E402
 from serve.responses import ResponsesError, error_body as responses_error_body  # noqa: E402
 from serve import usage as usage_log  # noqa: E402
+from serve import pricing  # noqa: E402   # the Monitor's paid-model cost comparison (serve/pricing.py)
 from serve import images as images_api  # noqa: E402
 
 IM_END = "<|im_end|>"
@@ -3079,6 +3080,13 @@ class Service:
         # In memory only, like the history and the totals; the config's "usage_log" (or --usage-log) keeps them
         # in strata-<model>.usage.json as well, so the chart survives a restart
         self.usage = usage_log.DailyUsage()
+        # The Monitor's paid-model cost comparison (serve/pricing.py): the same token counts, priced.  What the
+        # user changed there (a price, a comparison baseline, the USD/TWD rate) is kept in
+        # strata-<model>.cost.json beside the run config - never in the run config itself, so the cost card adds
+        # a file of its own and "restore the defaults" has a file to delete.
+        self.cost = pricing.Settings()
+        self.config_stem = None                      # the run config's name, which names the model family
+        self.model_paths = []                        # the model files the engine was given, for the same reason
         self.last_timings = None                         # the last finished request's, llama.cpp's names (/v1/status)
         from serve.prometheus import Latencies
         self.latencies = Latencies()                     # GET /metrics in Prometheus text: the latency histograms
@@ -3647,6 +3655,76 @@ class Service:
                      if k not in ("input", "output", "reasoning", "response") and not k.startswith("_")}
                     | {"wallclock_s": r.get("wallclock_s", round(time.perf_counter() - r["_clock"], 3))}
                     for r in reversed(records)]
+
+    def cost_view(self, days=None) -> dict:
+        """The Monitor's cost card (serve/pricing.py): the tokens Strata really counted, priced at a paid model.
+
+        Three scopes, each with its own counts and its own reach:
+          session - Service.totals, the requests this server has finished; its cached input is measured (`reused`)
+          today   - today's daily bucket (serve/usage.py), the whole day only when the counts are kept on disk
+          history - the whole window of the daily buckets, likewise, priced day by day
+        Each day carries the reuse it measured, so a measured day is priced at its own reuse and only a
+        day with no reuse figure of its own uses the assumed hit rate; the card names which of the two a
+        window is made of rather than blending them into one share.
+        A scope the server cannot reach answers `reliable: false`, and the card then says it has no history: the
+        counts of the current run are never shown as if they were today's or the last 30 days'.
+
+        The prices, the pairings and the settings travel in the same read, so switching the comparison baseline
+        recalculates in the page - no extra request, no reload, and no price typed into the page itself.
+        """
+        ident = pricing.identify(config_stem=self.config_stem, model_name=self.model, paths=self.model_paths)
+        settings = self.cost.view()
+        baseline, picked = self.cost.baseline_for(ident["family"])
+        prices = pricing.price_of(baseline, settings["prices"]) if baseline else None
+        with self.status_lock:
+            t = dict(self.totals)
+        usage = self.usage.view(days)
+        rows = usage.get("days") or []
+        window = usage.get("window") or {}
+        persistent = bool(usage.get("persistent"))
+        today = window.get("to")
+        today_row = next((r for r in rows if r.get("date") == today), None)
+
+        def scope(tokens, reliable, since=None, date=None):
+            """One scope's counts and their cost at the baseline in use; the counts travel too, so the page can
+            price them at another baseline the moment the user picks one."""
+            return {"tokens": tokens,
+                    "cost": pricing.compute_cost(tokens, prices, settings["cache_assumption"]),
+                    "reliable": reliable, "since": since, "date": date}
+
+        def day_rows(kept_rows):
+            """The daily rows in the shape price_days takes: the reuse that day measured, None when it did not."""
+            return [{"input_tokens": r.get("input_tokens"), "output_tokens": r.get("output_tokens"),
+                     "cached_input_tokens": r.get("reused_tokens")} for r in kept_rows]
+
+        def scope_days(kept_rows, reliable, since=None, date=None):
+            """A window priced day by day: the days whose reuse Strata measured are priced at their own
+            measured reuse, and only a day with no reuse figure of its own falls back to the assumed hit
+            rate.  Its cost says how many days came from a measurement and how many from the assumption,
+            so the card can name the difference instead of blending the two into one share."""
+            priced = pricing.price_days(day_rows(kept_rows), prices, settings["cache_assumption"])
+            return {"tokens": {"input_tokens": priced["input_tokens"],
+                               "cached_input_tokens": priced["cached_input_tokens"],
+                               "output_tokens": priced["output_tokens"]},
+                    "cost": priced, "reliable": reliable, "since": since, "date": date}
+
+        session = scope({"input_tokens": t.get("prompt_tokens"),
+                         "cached_input_tokens": t.get("reused"),
+                         "output_tokens": t.get("output_tokens")}, True, t.get("since"))
+        today_scope = scope({"input_tokens": (today_row or {}).get("input_tokens"),
+                             "cached_input_tokens": (today_row or {}).get("reused_tokens"),
+                             "output_tokens": (today_row or {}).get("output_tokens")},
+                            persistent, date=today)
+        history = scope_days(rows, persistent, since=usage.get("since"), date=window.get("from"))
+        return {"model": {**ident, "name": self.model, "baseline": baseline,
+                          "baseline_title": (prices or {}).get("title"),
+                          "picked": picked, "verified": bool((prices or {}).get("verified"))},
+                "baseline": prices,
+                "scopes": {"session": session, "today": today_scope, "history": history},
+                "settings": settings,
+                "usage": {"window": window, "days_with_usage": usage.get("days_with_usage"),
+                          "persistent": persistent, "error": usage.get("error")},
+                "time": time.time()}
 
     def metrics(self, all_requests=False) -> dict:
         """GET /metrics: what the Monitor tab shows - the engine's facts, what it is doing, the last requests, and
@@ -5326,7 +5404,7 @@ def make_handler(svc: Service):
                 # the Monitor's 30-day token chart (serve/usage.py): counts per local day, no prompts, answers or keys
                 if self._authorized():
                     days = parse_qs(urlsplit(self.path).query).get("days", [None])[0]
-                    self._json(200, svc.usage.view(days))
+                    self._json(200, {**svc.usage.view(days), "cost": svc.cost_view(days)})
                 return
             if path == "/settings":
                 if self._authorized():
@@ -5446,6 +5524,9 @@ def make_handler(svc: Service):
                 return
             if path == "/config":
                 self._config_post()
+                return
+            if path == "/api/usage/cost":
+                self._cost_post()
                 return
             if path in ("/unload", "/load") and not self._control_body():
                 return
@@ -5732,6 +5813,34 @@ def make_handler(svc: Service):
                 print(f"[strata] the Settings view changed {', '.join(changed)} in {Path(svc.config_path).name} "
                       f"(the earlier file: {bak.name}); used from the next start", flush=True)
             self._json(200, {**runconfig.view(new, svc.config_path), "changed": changed})
+        def _cost_post(self):
+            """The cost card's own settings (serve/pricing.py): a price, a comparison baseline, the USD/TWD rate,
+            the assumed cache hit rate.  JSON from Strata's own page only, as /settings; they go in
+            strata-<model>.cost.json beside the run config, never in the run config, and "reset" goes back to the
+            prices this project ships with.  Nothing here sends a request anywhere: these are comparison prices."""
+            body = self._body()
+            if not self._own_page("the cost estimates can be changed"):
+                return
+            try:
+                req = json.loads(body or b"{}")
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": f"the body is not JSON: {e}"}})
+                return
+            req = req if isinstance(req, dict) else {}
+            if req.get("reset") is True:
+                svc.cost.clear()
+                self._json(200, {"reset": True, "settings": svc.cost.view(),
+                                 "path": str(svc.cost.path) if svc.cost.path else None})
+                return
+            changes = req.get("set") if isinstance(req.get("set"), dict) else req
+            try:
+                changed = svc.cost.apply(changes)
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            self._json(200, {"changed": changed, "settings": svc.cost.view(),
+                             "path": str(svc.cost.path) if svc.cost.path else None})
+
         def _foreign_origin(self) -> bool:
             """A web page of another origin sent this.  The Origin must be this server's own address (host and port),
             or an origin the config trusts (trusted_origins: the web app behind a reverse proxy or tunnel); no Origin
@@ -6932,6 +7041,10 @@ def main() -> int:
         # The file lags memory by up to WRITE_EVERY_S, and closing the window is how the server usually ends:
         # take the newest counts to disk on the way out, so the last requests of a session are not lost.
         atexit.register(lambda: svc.usage.flush(force=True))
+    if a.config:                                        # the cost card reads the model family from the run
+        svc.config_stem = Path(a.config).name           # config's own name (setup.py writes it) and the engine's
+        svc.model_paths = [str(x) for x in (cfg.get("args") or []) if isinstance(x, str)]   # own file paths
+    svc.cost.enable(str(Path(a.config).with_suffix("")) + ".cost.json" if a.config else None)
     if a.config:                                        # the Chat settings shared with other apps, from last time
         svc.shared_path = str(Path(a.config).with_suffix("")) + ".shared-settings.json"
         try:
